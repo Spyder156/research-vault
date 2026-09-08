@@ -724,3 +724,47 @@ input.title-in {
   gap: 6px;
   margin: -4px 0 16px -9px;
 }
+
+/* ======================= MATH ======================= */
+
+/* Inherit the page ink so formulas follow the theme. */
+.katex { color: inherit; font-size: 1.04em; }
+
+/* A wide equation scrolls inside its own strip — it never widens the box
+   or pushes the page sideways. */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0 6px;
+  margin: 12px 0;
+}
+.katex-display > .katex { text-align: left; }
+.md .katex-display { max-width: 100%; }
+
+/* A formula KaTeX could not parse stays visible as source rather than vanishing. */
+.katex-error {
+  color: var(--st-parked) !important;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* Long unbroken strings (URLs, paths) must not stretch a prose box either. */
+.md { overflow-wrap: anywhere; }
+.md pre, .md table { max-width: 100%; }
+
+/* Transient hint while a plan row is being typed into — shows how to nest.
+   It exists only during editing, so it is not a permanent label. */
+.step-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* A formula the server tagged but KaTeX could not parse: keep the source legible. */
+.tex-error { font-family: var(--mono); font-size: 12px; color: var(--st-parked); }
+/* Display formulas sit on their own line and scroll if they are wider than the box. */
+span.tex[data-display="1"] { display: block; overflow-x: auto; overflow-y: hidden; margin: 12px 0; }
