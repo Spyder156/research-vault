@@ -1,0 +1,26 @@
+# Personal data — never leaves this machine.
+ideas/
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Transient
+*.tmp
+*.log
+nohup.out
