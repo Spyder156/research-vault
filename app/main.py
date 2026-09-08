@@ -19,9 +19,88 @@ STATIC_DIR = storage.ROOT / "app" / "static"
 
 _MD_EXTENSIONS = ["extra", "sane_lists"]  # tables, fenced code, footnotes
 
+# --- LaTeX protection -------------------------------------------------------
+# Markdown would eat the innards of an equation: "$b_a$" becomes "<em>" and
+# "$x^*$" loses its star. So every math span is lifted out before markdown runs
+# and put back verbatim afterwards. KaTeX (client side) does the actual
+# typesetting and already skips <pre>/<code>, so math inside a code fence stays
+# literal. Placeholders use private-use codepoints that markdown never touches.
+_PH_OPEN, _PH_CLOSE = "\ue000", "\ue001"          # maths placeholders
+_CH_OPEN, _CH_CLOSE = "\ue002", "\ue003"          # code placeholders
+
+# Code is lifted out first so a "$" inside a code span or fence is never
+# mistaken for maths; it is put back before markdown runs, so it still
+# formats as code.
+_CODE_PATTERNS = [
+    re.compile(r"```.*?```", re.S),                  # fenced block
+    re.compile(r"~~~.*?~~~", re.S),
+    re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S),    # inline span
+]
+
+_MATH_PATTERNS = [
+    re.compile(r"\$\$.+?\$\$", re.S),            # $$ display $$
+    re.compile(r"\\\[.+?\\\]", re.S),          # \[ display \]
+    re.compile(r"\\\(.+?\\\)", re.S),          # \( inline \)
+    # $ inline $ — must hug its content, and a trailing digit means it was
+    # money ("$5 and $10"), not maths.
+    re.compile(r"(?<![\\$])\$(?!\s)([^$\n]*?)(?<!\s)\$(?!\d)"),
+]
+
+
+def _protect_math(text: str) -> tuple[str, list[str]]:
+    code: list[str] = []
+
+    def stash_code(m: re.Match) -> str:
+        code.append(m.group(0))
+        return f"{_CH_OPEN}{len(code) - 1}{_CH_CLOSE}"
+
+    for pattern in _CODE_PATTERNS:
+        text = pattern.sub(stash_code, text)
+
+    spans: list[str] = []
+
+    def stash_math(m: re.Match) -> str:
+        spans.append(m.group(0))
+        return f"{_PH_OPEN}{len(spans) - 1}{_PH_CLOSE}"
+
+    for pattern in _MATH_PATTERNS:
+        text = pattern.sub(stash_math, text)
+
+    # Put code back before markdown so it renders as code as usual.
+    for i, raw in enumerate(code):
+        text = text.replace(f"{_CH_OPEN}{i}{_CH_CLOSE}", raw)
+    return text, spans
+
+
+def _strip_delims(raw: str) -> tuple[bool, str]:
+    """(is_display, tex_without_delimiters)."""
+    if raw.startswith("$$") and raw.endswith("$$"):
+        return True, raw[2:-2]
+    if raw.startswith("\\[") and raw.endswith("\\]"):
+        return True, raw[2:-2]
+    if raw.startswith("\\(") and raw.endswith("\\)"):
+        return False, raw[2:-2]
+    return False, raw[1:-1]
+
+
+def _restore_math(html: str, spans: list[str]) -> str:
+    """Emit each formula as a tagged span. The server is the only thing that
+    decides what counts as maths, so the client never has to guess — that is what
+    keeps "$5 and $10" from being typeset as an equation."""
+    for i, raw in enumerate(spans):
+        display, tex = _strip_delims(raw)
+        esc = (tex.replace("&", "&amp;").replace("<", "&lt;")
+                  .replace(">", "&gt;").replace('"', "&quot;"))
+        span = (f'<span class="tex" data-display="{1 if display else 0}" '
+                f'data-tex="{esc}">{esc}</span>')
+        html = html.replace(f"{_PH_OPEN}{i}{_PH_CLOSE}", span)
+    return html
+
 
 def render_markdown(text: str, slug: str | None = None) -> str:
+    text, math_spans = _protect_math(text)
     html = md.markdown(text, extensions=_MD_EXTENSIONS)
+    html = _restore_math(html, math_spans)
     if slug:
         # Relative figure refs in the .md stay portable ("figures/x.png");
         # rewrite them to the serving route only at render time.
