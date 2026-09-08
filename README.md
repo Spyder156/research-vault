@@ -34,6 +34,24 @@ sub-steps too (`Backspace` on an empty row never does — it removes only that r
 **Links & Reading** is a two-column table: the name you give a paper on the left, and a
 short `Link` on the right that carries the full URL.
 
+## LaTeX
+
+Maths is written in LaTeX and typeset by KaTeX, which is vendored under
+`app/static/vendor/katex` — so it works with no network and no CDN.
+
+- `$...$` inline, `$$...$$` for a display block; `\(...\)` and `\[...\]` also work.
+- Formulas are identified **on the server**, before markdown runs, so `$b_a$` keeps its
+  subscript instead of turning into italics, and prices like `$5 and $10` stay as text.
+- Anything inside backticks or a fenced block is left literal — `` `$x_i$` `` renders as code.
+- A wide equation scrolls inside its own strip rather than stretching the box.
+- A formula KaTeX cannot parse stays visible as its source instead of vanishing.
+
+**Paste the source, not the rendered page.** Copying equations out of a rendered page (a
+chat answer, a docs site) yields Unicode maths glyphs and invisible spacers rather than
+LaTeX — every formula arrives duplicated and unusable. Use the source/copy button instead.
+Pasting into a prose box strips the invisible characters and folds those glyphs back to
+ASCII, which makes such a paste readable, but it cannot reconstruct the LaTeX.
+
 **Everything is click-to-edit.** Click any text — the title, a plan step, or a prose block —
 and it becomes editable in place. There are no Edit buttons and no side-by-side preview:
 one box, which autosaves as you type and renders back to markdown on blur or `Esc`. Paste
