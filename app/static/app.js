@@ -23,6 +23,52 @@ function el(spec, attrs = {}, ...children) {
   return n;
 }
 
+/**
+ * Typeset the formulas the server tagged. Only <span class="tex"> is rendered,
+ * so the client never scans loose text and never mistakes prices for maths.
+ */
+function typeset(node) {
+  if (!node || !window.katex) return;
+  for (const span of node.querySelectorAll("span.tex:not([data-done])")) {
+    const tex = span.getAttribute("data-tex") || span.textContent;
+    try {
+      window.katex.render(tex, span, {
+        displayMode: span.getAttribute("data-display") === "1",
+        throwOnError: false,
+      });
+    } catch {
+      span.classList.add("tex-error");   // leave the source visible, never blank
+    }
+    span.setAttribute("data-done", "1");
+  }
+}
+
+/**
+ * Clean text copied out of a *rendered* page (ChatGPT, Wikipedia, arXiv HTML).
+ * That kind of copy carries invisible layout spacers and Unicode maths glyphs
+ * instead of LaTeX. Strip the invisibles and fold the glyphs back to ASCII so
+ * the text is at least readable and editable.
+ */
+function sanitizePaste(text) {
+  let out = text
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, "")   // zero-width + soft hyphen
+    .replace(/\u2062|\u2061|\u2063|\u2064/g, "")          // invisible times/apply/separator
+    .replace(/[\u2007\u202F\u2009\u200A\u205F]/g, " ");  // exotic spaces -> plain space
+  // Unicode Mathematical Alphanumeric Symbols (U+1D400–U+1D7FF) -> ASCII
+  out = out.replace(/[\u{1D400}-\u{1D7FF}]/gu, ch => {
+    const cp = ch.codePointAt(0);
+    for (const [base, from] of [[0x41, 0x1D400], [0x61, 0x1D41A]]) {
+      for (let block = 0; block < 13; block++) {
+        const start = from + block * 52;
+        if (cp >= start && cp < start + 26) return String.fromCharCode(base + (cp - start));
+      }
+    }
+    if (cp >= 0x1D7CE && cp <= 0x1D7FF) return String((cp - 0x1D7CE) % 10);  // digits
+    return ch;
+  });
+  return out.replace(/[ \t]+$/gm, "").replace(/\n{4,}/g, "\n\n\n");
+}
+
 const label = t => el("span.label", {}, t);
 const hr = () => el("span.hr");
 const grow = () => el("span.grow");
@@ -244,7 +290,7 @@ function proseBox({ slug, key, text0, html0, placeholder = "", small, tall, onFi
 
   const ph = () => el("div.ph", {}, placeholder);
   const view = el("div.md", { html: html0 });
-  if (!value.trim()) view.replaceChildren(ph());
+  if (!value.trim()) view.replaceChildren(ph()); else typeset(view);
 
   const box = el("div.prose-box" + (small ? ".small" : "") + (tall ? ".tall" : ""),
     { title: "Click to edit" }, view);
@@ -302,7 +348,7 @@ function proseBox({ slug, key, text0, html0, placeholder = "", small, tall, onFi
     box.setAttribute("title", "Click to edit");
     const { html } = await api("POST", "/api/render", { text: value, slug });
     view.innerHTML = html;
-    if (!value.trim()) view.replaceChildren(ph());
+    if (!value.trim()) view.replaceChildren(ph()); else typeset(view);
     box.replaceChildren(view);
   }
 
@@ -314,6 +360,20 @@ function proseBox({ slug, key, text0, html0, placeholder = "", small, tall, onFi
   ta.addEventListener("blur", exit);
   ta.addEventListener("input", () => { autosize(); doSave(); });
   ta.addEventListener("keydown", e => { if (e.key === "Escape") ta.blur(); });
+  // Text pastes get cleaned; image pastes become figures.
+  ta.addEventListener("paste", e => {
+    const raw = e.clipboardData?.getData("text/plain");
+    if (!raw) return;
+    const clean = sanitizePaste(raw);
+    if (clean === raw) return;                 // nothing to fix, let the browser do it
+    e.preventDefault();
+    const a = ta.selectionStart, b = ta.selectionEnd;
+    ta.value = ta.value.slice(0, a) + clean + ta.value.slice(b);
+    ta.setSelectionRange(a + clean.length, a + clean.length);
+    ta.dispatchEvent(new Event("input"));
+    toast("pasted text cleaned");
+  });
+
   if (figures) {
     ta.addEventListener("paste", e => {
       const f = [...(e.clipboardData?.files || [])].find(x => x.type.startsWith("image/"));
@@ -546,7 +606,10 @@ async function renderDetail(slug) {
           renderPlan();
         });
 
-        row.append(inp);
+        // Transient: tells you how to nest, only while you are actually typing.
+        const hint = el("span.step-hint", {},
+          top ? (ix > 0 ? "tab \u2192 sub-step" : "") : "shift+tab \u2192 step");
+        row.append(inp, hint);
       } else {
         const t = el("span.step-t", { title: "Click to edit" }, item.text);
         t.addEventListener("click", () => { editIx = ix; caretEnd = true; renderPlan(); });
