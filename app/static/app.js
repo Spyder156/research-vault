@@ -717,7 +717,7 @@ function modal({ heading, body, actions }) {
 }
 
 function openNewIdea() {
-  const titleIn = el("input.txt", { placeholder: "e.g. Gaussian-splat loop closure", spellcheck: "false" });
+  const titleIn = el("input.txt", { placeholder: "Short, specific title", spellcheck: "false" });
   const fSel = el("select.sel");
   const sSel = el("select.sel");
   const stSel = el("select.sel", ...STATUSES.map(s => {
