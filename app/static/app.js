@@ -69,6 +69,46 @@ function sanitizePaste(text) {
   return out.replace(/[ \t]+$/gm, "").replace(/\n{4,}/g, "\n\n\n");
 }
 
+/**
+ * Grow a textarea to fit its content WITHOUT ever collapsing it.
+ *
+ * The usual trick — set height:auto, read scrollHeight, set height — shrinks the
+ * box for one frame. That shortens the page, the browser clamps the scroll
+ * position and drags the caret to the top of the box on every keystroke. Instead
+ * the text is measured in an off-screen mirror that shares the textarea's
+ * typography and width, so the real box is only ever assigned its final height
+ * and the page never reflows underneath the caret.
+ */
+let _mirror = null;
+function autoGrow(ta, min) {
+  const width = ta.clientWidth;
+  if (!width) {                                   // not laid out yet (or headless)
+    if (!ta.style.height) ta.style.height = min + "px";
+    return;
+  }
+  if (!_mirror) {
+    _mirror = document.createElement("div");
+    _mirror.setAttribute("aria-hidden", "true");
+    Object.assign(_mirror.style, {
+      position: "absolute", top: "0", left: "-99999px", visibility: "hidden",
+      whiteSpace: "pre-wrap", wordWrap: "break-word", overflowWrap: "anywhere",
+      height: "auto", pointerEvents: "none",
+    });
+    document.body.appendChild(_mirror);
+  }
+  const cs = getComputedStyle(ta);
+  for (const prop of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight",
+                      "letterSpacing", "textIndent", "paddingTop", "paddingRight",
+                      "paddingBottom", "paddingLeft", "borderTopWidth",
+                      "borderBottomWidth", "boxSizing", "tabSize"]) {
+    _mirror.style[prop] = cs[prop];
+  }
+  _mirror.style.width = width + "px";
+  _mirror.textContent = ta.value + "\n";          // trailing line so a final \n counts
+  const needed = Math.max(_mirror.offsetHeight, min);
+  if (parseFloat(ta.style.height) !== needed) ta.style.height = needed + "px";
+}
+
 /** Wrap the selection (or the caret) in markdown delimiters. */
 function wrapSelection(ta, before, after = before, placeholder = "text") {
   const a = ta.selectionStart, b = ta.selectionEnd;
@@ -394,19 +434,7 @@ function proseBox({ slug, key, text0, html0, placeholder = "", small, tall, onFi
   const toolbar = editorToolbar(ta);
   const foot = el("div.edit-foot", {}, toolbar, figures ? figBtn : null);
 
-  // Measuring needs height:auto, which momentarily collapses the box; that shrinks
-  // the page and the browser clamps the scroll position, so the caret appears to
-  // jump to the top. Freeze the scroll across the measurement and put it back.
-  const autosize = () => {
-    const min = tall ? 300 : 90;
-    const scroller = document.scrollingElement || document.documentElement;
-    const y = scroller.scrollTop;
-    const current = parseFloat(ta.style.height) || 0;
-    ta.style.height = "auto";
-    const needed = Math.max(ta.scrollHeight, min);
-    ta.style.height = needed + "px";
-    if (needed !== current) scroller.scrollTop = y;
-  };
+  const autosize = () => autoGrow(ta, tall ? 300 : 90);
 
   const doSave = debounce(async () => {
     await api("PUT", `/api/ideas/${slug}/text`, { [key]: ta.value });
@@ -724,13 +752,7 @@ async function renderDetail(slug) {
     const ta = el("textarea.block-in", { spellcheck: "false" });
     ta.value = blockToText(b);
 
-    const fit = () => {
-      const scroller = document.scrollingElement || document.documentElement;
-      const y = scroller.scrollTop;
-      ta.style.height = "auto";
-      ta.style.height = Math.max(ta.scrollHeight, 52) + "px";
-      scroller.scrollTop = y;
-    };
+    const fit = () => autoGrow(ta, 52);
 
     let done = false;
     async function commit() {
