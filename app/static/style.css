@@ -533,7 +533,7 @@ input.title-in {
 .step.sub .step-t { font-size: 13px; color: var(--ink-2); }
 .step.sub input[type="checkbox"] { width: 12px; height: 12px; margin-top: 4px; }
 .step.sub input[type="checkbox"]:checked::after { left: 3.5px; top: 0.5px; width: 3px; height: 7px; }
-.step.top .step-t { font-weight: 550; }
+.step.top .step-t { font-weight: 600; font-size: 14px; }
 
 /* a step being typed into: full-width field, no chrome, keeps the row geometry */
 .step-edit {
@@ -557,24 +557,34 @@ input.title-in {
 .add-row .add-hint { font-size: 13px; color: var(--ink-3); }
 .step input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
-  width: 14px; height: 14px;
-  margin-top: 3.5px;
   border: 1px solid var(--line-3);
   background: var(--page);
   cursor: default;
   flex-shrink: 0;
   position: relative;
 }
+/* high-level point: a big square box */
+.cb-main { width: 17px; height: 17px; margin-top: 2px; }
+/* sub-point: a small round bullet box */
+.cb-sub { width: 11px; height: 11px; margin-top: 5px; border-radius: 50%; }
 .step input[type="checkbox"]:hover { border-color: var(--ink-2); }
 .step input[type="checkbox"]:checked { background: var(--ink); border-color: var(--ink); }
-.step input[type="checkbox"]:checked::after {
+.cb-main:checked::after {
   content: "";
   position: absolute;
-  left: 4px; top: 1px;
-  width: 4px; height: 8px;
+  left: 5px; top: 1px;
+  width: 5px; height: 10px;
   border: solid var(--page);
-  border-width: 0 1.6px 1.6px 0;
+  border-width: 0 2px 2px 0;
   transform: rotate(43deg);
+}
+/* the sub bullet fills in rather than showing a tick — it stays legible at 11px */
+.cb-sub:checked::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--page);
 }
 .step-t { flex: 1; cursor: default; font-size: 13.5px; line-height: 1.5; }
 .step.checked .step-t { color: var(--ink-3); text-decoration: line-through; }
@@ -768,3 +778,75 @@ input.title-in {
 .tex-error { font-family: var(--mono); font-size: 12px; color: var(--st-parked); }
 /* Display formulas sit on their own line and scroll if they are wider than the box. */
 span.tex[data-display="1"] { display: block; overflow-x: auto; overflow-y: hidden; margin: 12px 0; }
+
+/* ---- plan: the block editor that replaces one point while you type ---- */
+.block-edit {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--line);
+  background: var(--hover);
+  box-shadow: inset 2px 0 0 var(--ink-3);
+}
+.block-in {
+  flex: 1;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  padding: 0;
+  min-height: 52px;
+}
+
+/* ---- prose editor toolbar ---- */
+.edit-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+.toolbar { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.tb {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tb:hover { border-color: var(--line-2); background: var(--surface-2); color: var(--ink); }
+.tb-b { font-weight: 700; }
+.tb-i { font-style: italic; font-family: Georgia, serif; }
+.tb-u { text-decoration: underline; }
+.tb-sep { width: 1px; height: 15px; background: var(--line-2); margin: 0 4px; }
+.tb-size {
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 3px 20px 3px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 0;
+  background: var(--surface) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='6'><path d='M0 0l4.5 6L9 0z' fill='%238b887e'/></svg>") no-repeat right 6px center;
+  color: var(--ink);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: default;
+}
+.md u { text-decoration: underline; text-underline-offset: 2px; }
