@@ -3,11 +3,13 @@
 Everything is served from 127.0.0.1 only; ideas never leave the machine.
 """
 
+import hashlib
 import re
+from pathlib import Path
 
 import markdown as md
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -312,9 +314,41 @@ def api_search(q: str = ""):
     return {"slugs": storage.search(q)}
 
 
+# --- never serve a stale UI ---------------------------------------------------
+# StaticFiles sends no Cache-Control, so browsers fall back to heuristic caching
+# and can keep showing an old app.js/style.css after an edit. Two guards:
+#   1. "no-cache" on every response, so the browser always revalidates (cheap: a
+#      304 when nothing changed).
+#   2. A ?v= fingerprint on the asset URLs in index.html, so even a cache that
+#      ignores (1) is forced to refetch the moment a file changes.
+@app.middleware("http")
+async def no_stale_assets(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
+def _fingerprint(*paths: Path) -> str:
+    h = hashlib.md5()
+    for path in paths:
+        try:
+            st = path.stat()
+            h.update(f"{path.name}:{st.st_mtime_ns}:{st.st_size}".encode())
+        except OSError:
+            pass
+    return h.hexdigest()[:10]
+
+
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    version = _fingerprint(STATIC_DIR / "app.js", STATIC_DIR / "style.css",
+                           STATIC_DIR / "vendor" / "katex" / "katex.min.js")
+    for asset in ("/static/app.js", "/static/style.css",
+                  "/static/vendor/katex/katex.min.js",
+                  "/static/vendor/katex/katex.min.css"):
+        html = html.replace(f'"{asset}"', f'"{asset}?v={version}"')
+    return HTMLResponse(html)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
