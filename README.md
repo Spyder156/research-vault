@@ -21,15 +21,17 @@ a short description, a large long-form box, the Plan, and a notes scratchpad —
 Links & Reading and a figures gallery. The sections carry no headings; their shape tells
 you what they are.
 
-**The Plan is an outliner.** Click a step (or the `+` line) and type. `Enter` opens the
-next step, `Tab` nests it under the one above, `Shift+Tab` promotes it back, `Backspace` on
-an empty row deletes it, `↑`/`↓` move between rows, `Esc` finishes. You can write a whole
-nested plan without touching the mouse.
+**The Plan is written, not assembled.** Click a point (or the `+` line) and it opens as a
+small text box. The first line is the point itself; lines starting with `- ` become its
+sub-points, and pressing `Enter` after one continues the list automatically. A line
+*without* `- ` starts a new point of its own, so you can type a whole roadmap in one go and
+it splits itself up when you leave the box (`Esc` or `Ctrl+Enter` also close it).
 
-High-level steps are numbered `01, 02, 03`; sub-steps `01.1, 01.2`. **Only high-level steps
-count toward the progress bar** — sub-steps are working detail, not milestones. Dragging a
-high-level step by its number carries its sub-steps with it, and deleting one deletes its
-sub-steps too (`Backspace` on an empty row never does — it removes only that row).
+Out of the box it becomes a checklist: a **big square checkbox** for each point, a **small
+round one** for each sub-point. **Only the points count toward the progress bar** —
+sub-points are working detail. Ticks survive re-editing: any line whose wording you did not
+change keeps its state. Each point is edited on its own, and dragging one by its number
+carries its sub-points along.
 
 **Links & Reading** is a two-column table: the name you give a paper on the left, and a
 short `Link` on the right that carries the full URL.
@@ -52,9 +54,11 @@ LaTeX — every formula arrives duplicated and unusable. Use the source/copy but
 Pasting into a prose box strips the invisible characters and folds those glyphs back to
 ASCII, which makes such a paste readable, but it cannot reconstruct the LaTeX.
 
-**Everything is click-to-edit.** Click any text — the title, a plan step, or a prose block —
+**Everything is click-to-edit.** Click any text — the title, a plan point, or a prose block —
 and it becomes editable in place. There are no Edit buttons and no side-by-side preview:
-one box, which autosaves as you type and renders back to markdown on blur or `Esc`. Paste
+one box, which autosaves as you type and renders back to markdown on blur or `Esc`. Prose
+boxes carry a formatting strip while open (heading size, **bold**, *italic*, underline,
+lists, quote, code, link, formula) with `Ctrl+B` / `Ctrl+I` / `Ctrl+U` shortcuts. Paste
 or drag an image into the long box or the notes and it is stored in that idea's `figures/`.
 The short description takes text only — no figures.
 
