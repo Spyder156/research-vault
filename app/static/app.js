@@ -69,6 +69,93 @@ function sanitizePaste(text) {
   return out.replace(/[ \t]+$/gm, "").replace(/\n{4,}/g, "\n\n\n");
 }
 
+/** Wrap the selection (or the caret) in markdown delimiters. */
+function wrapSelection(ta, before, after = before, placeholder = "text") {
+  const a = ta.selectionStart, b = ta.selectionEnd;
+  const sel = ta.value.slice(a, b) || placeholder;
+  ta.value = ta.value.slice(0, a) + before + sel + after + ta.value.slice(b);
+  ta.focus();
+  ta.setSelectionRange(a + before.length, a + before.length + sel.length);
+  ta.dispatchEvent(new Event("input"));
+}
+
+/** Set (or clear) a line-leading marker such as "## " or "- " on every selected line. */
+function prefixLines(ta, marker) {
+  const a = ta.selectionStart, b = ta.selectionEnd;
+  const start = ta.value.lastIndexOf("\n", a - 1) + 1;
+  let end = ta.value.indexOf("\n", b);
+  if (end === -1) end = ta.value.length;
+  const block = ta.value.slice(start, end);
+  const strip = l => l.replace(/^\s*(?:#{1,6}\s+|[-*]\s+|>\s+)/, "");
+  const already = marker && block.split("\n").every(l => l.startsWith(marker));
+  const out = block.split("\n")
+    .map(l => (already || !marker ? strip(l) : marker + strip(l)))
+    .join("\n");
+  ta.value = ta.value.slice(0, start) + out + ta.value.slice(end);
+  ta.focus();
+  ta.setSelectionRange(start, start + out.length);
+  ta.dispatchEvent(new Event("input"));
+}
+
+/**
+ * Continue a "- " list on Enter, the way a document editor does, and end the list
+ * when you press Enter on an empty bullet.
+ */
+function listContinuation(ta, e) {
+  if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey) return false;
+  const pos = ta.selectionStart;
+  if (pos !== ta.selectionEnd) return false;
+  const lineStart = ta.value.lastIndexOf("\n", pos - 1) + 1;
+  const line = ta.value.slice(lineStart, pos);
+  const m = line.match(/^(\s*)([-*])\s+/);
+  if (!m) return false;
+  e.preventDefault();
+  if (line.slice(m[0].length).trim() === "") {
+    // empty bullet -> drop the marker and leave the list
+    ta.value = ta.value.slice(0, lineStart) + ta.value.slice(pos);
+    ta.setSelectionRange(lineStart, lineStart);
+  } else {
+    const ins = "\n" + m[1] + m[2] + " ";
+    ta.value = ta.value.slice(0, pos) + ins + ta.value.slice(pos);
+    ta.setSelectionRange(pos + ins.length, pos + ins.length);
+  }
+  ta.dispatchEvent(new Event("input"));
+  return true;
+}
+
+/** The strip of controls shown under a prose editor while it is open. */
+function editorToolbar(ta) {
+  const btn = (glyph, title, fn, cls = "") =>
+    el("button.tb" + cls, {
+      title,
+      onmousedown: e => e.preventDefault(),        // keep the textarea focused
+      onclick: () => fn(),
+    }, glyph);
+
+  const sizeSel = el("select.tb-size", { onmousedown: e => e.stopPropagation() },
+    ...[["", "Normal"], ["# ", "Heading 1"], ["## ", "Heading 2"], ["### ", "Heading 3"]]
+      .map(([v, t]) => el("option", { value: v }, t)));
+  sizeSel.addEventListener("change", () => {
+    prefixLines(ta, sizeSel.value);
+    sizeSel.value = "";
+  });
+
+  return el("div.toolbar", {},
+    sizeSel,
+    el("span.tb-sep"),
+    btn("B", "Bold  (Ctrl+B)", () => wrapSelection(ta, "**"), ".tb-b"),
+    btn("I", "Italic  (Ctrl+I)", () => wrapSelection(ta, "*"), ".tb-i"),
+    btn("U", "Underline  (Ctrl+U)", () => wrapSelection(ta, "<u>", "</u>"), ".tb-u"),
+    el("span.tb-sep"),
+    btn("•", "Bullet list", () => prefixLines(ta, "- ")),
+    btn("❝", "Quote", () => prefixLines(ta, "> ")),
+    btn("<>", "Code", () => wrapSelection(ta, "`", "`", "code")),
+    btn("🔗", "Link", () => wrapSelection(ta, "[", "](url)", "label")),
+    el("span.tb-sep"),
+    btn("∑", "Inline formula", () => wrapSelection(ta, "$", "$", "x_i")),
+    btn("∑\u2261", "Display formula", () => wrapSelection(ta, "\n$$", "$$\n", "\\frac{a}{b}")));
+}
+
 const label = t => el("span.label", {}, t);
 const hr = () => el("span.hr");
 const grow = () => el("span.grow");
@@ -304,11 +391,21 @@ function proseBox({ slug, key, text0, html0, placeholder = "", small, tall, onFi
       fi.click();
     },
   }, "+ Figure");
-  const foot = figures ? el("div.edit-foot", {}, figBtn) : null;
+  const toolbar = editorToolbar(ta);
+  const foot = el("div.edit-foot", {}, toolbar, figures ? figBtn : null);
 
+  // Measuring needs height:auto, which momentarily collapses the box; that shrinks
+  // the page and the browser clamps the scroll position, so the caret appears to
+  // jump to the top. Freeze the scroll across the measurement and put it back.
   const autosize = () => {
+    const min = tall ? 300 : 90;
+    const scroller = document.scrollingElement || document.documentElement;
+    const y = scroller.scrollTop;
+    const current = parseFloat(ta.style.height) || 0;
     ta.style.height = "auto";
-    ta.style.height = Math.max(ta.scrollHeight, tall ? 300 : 90) + "px";
+    const needed = Math.max(ta.scrollHeight, min);
+    ta.style.height = needed + "px";
+    if (needed !== current) scroller.scrollTop = y;
   };
 
   const doSave = debounce(async () => {
@@ -359,7 +456,16 @@ function proseBox({ slug, key, text0, html0, placeholder = "", small, tall, onFi
   });
   ta.addEventListener("blur", exit);
   ta.addEventListener("input", () => { autosize(); doSave(); });
-  ta.addEventListener("keydown", e => { if (e.key === "Escape") ta.blur(); });
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Escape") { ta.blur(); return; }
+    if (listContinuation(ta, e)) return;
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === "b") { e.preventDefault(); wrapSelection(ta, "**"); }
+      else if (k === "i") { e.preventDefault(); wrapSelection(ta, "*"); }
+      else if (k === "u") { e.preventDefault(); wrapSelection(ta, "<u>", "</u>"); }
+    }
+  });
   // Text pastes get cleaned; image pastes become figures.
   ta.addEventListener("paste", e => {
     const raw = e.clipboardData?.getData("text/plain");
@@ -480,20 +586,47 @@ async function renderDetail(slug) {
     small: true, tall: true, onFigure,
   });
 
-  // --- plan: an outliner. Type, Enter for the next step, Tab to nest.
+  // --- plan: each high-level point is a small document you type into.
+  //     One point per block; lines beginning "- " become its sub-points; a line
+  //     without "- " starts a new point of its own.
   const planBox = el("div.plan");
   const planMeter = el("div.meter");
 
   const isTop = it => (it.level || 0) === 0;
-  /** Index range [start, end) of a step plus any sub-steps it owns. */
-  function blockRange(plan, ix) {
-    if (!isTop(plan[ix])) return [ix, ix + 1];
-    let end = ix + 1;
-    while (end < plan.length && !isTop(plan[end])) end++;
-    return [ix, end];
+
+  /** Group the flat plan into blocks: one high-level point plus its sub-points. */
+  function planBlocks() {
+    const blocks = [];
+    meta.plan.forEach((it, ix) => {
+      if (isTop(it) || !blocks.length) blocks.push({ start: ix, end: ix + 1, items: [it] });
+      else { const b = blocks[blocks.length - 1]; b.items.push(it); b.end = ix + 1; }
+    });
+    return blocks;
   }
-  const hasChildren = (plan, ix) => blockRange(plan, ix)[1] > ix + 1;
-  const normalizeLevels = plan => { if (plan.length) plan[0].level = 0; return plan; };
+
+  /** Block -> the text you edit. First line is the point, "- " lines are sub-points. */
+  const blockToText = b =>
+    b.items.map((it, i) => (i === 0 || isTop(it) ? it.text : "- " + it.text)).join("\n");
+
+  /** The text you typed -> plan items, preserving tick state for unchanged lines. */
+  function textToItems(text, previous) {
+    const items = [];
+    for (const raw of text.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      const bullet = line.match(/^[-*\u2022]\s+(.*)$/);
+      if (bullet && items.length) items.push({ text: bullet[1].trim(), checked: false, level: 1 });
+      else items.push({ text: line.replace(/^[-*\u2022]\s+/, ""), checked: false, level: 0 });
+    }
+    if (items.length) items[0].level = 0;
+    // Carry over ticks (and ids) for lines whose wording did not change.
+    const pool = [...previous];
+    for (const it of items) {
+      const j = pool.findIndex(o => o.text === it.text && (o.level || 0) === it.level);
+      if (j >= 0) { it.checked = pool[j].checked; it.id = pool[j].id; pool.splice(j, 1); }
+    }
+    return items.filter(it => it.text);
+  }
 
   function refreshMeter() {
     const tops = meta.plan.filter(isTop);
@@ -506,167 +639,125 @@ async function renderDetail(slug) {
   }
   async function savePlan() { await patch({ plan: meta.plan }); refreshMeter(); }
 
-  let dragIx = null;
-  let editIx = null;        // index currently being typed into
-  let caretEnd = true;      // where to place the caret after a re-render
-  let suppressBlur = false; // set while a keystroke drives its own re-render
+  let editBlock = null;   // index of the block currently open for editing
+  let dragBlock = null;
 
   function renderPlan() {
-    let topN = 0, subN = 0;
-    const rows = meta.plan.map((item, ix) => {
-      const top = isTop(item);
-      if (top) { topN++; subN = 0; } else { subN++; }
-      const num = top ? String(topN).padStart(2, "0") : `${String(topN).padStart(2, "0")}.${subN}`;
+    const blocks = planBlocks();
+    planBox.replaceChildren();
 
-      const cb = el("input", { type: "checkbox" });
-      cb.checked = item.checked;
-      cb.addEventListener("change", async () => {
-        meta.plan[ix].checked = cb.checked;
-        await savePlan();
-        renderPlan();
+    blocks.forEach((b, bi) => {
+      if (bi === editBlock) { planBox.append(blockEditor(b, bi)); return; }
+
+      const main = b.items[0];
+      const num = el("span.step-n", { title: "Drag to reorder" },
+        String(bi + 1).padStart(2, "0"));
+
+      const cbMain = el("input.cb-main", { type: "checkbox" });
+      cbMain.checked = main.checked;
+      cbMain.addEventListener("change", async () => {
+        meta.plan[b.start].checked = cbMain.checked;
+        await savePlan(); renderPlan();
       });
 
-      const handle = el("span.step-n", { title: "Drag to reorder" }, num);
-      const row = el("div.step" + (top ? ".top" : ".sub") + (item.checked ? ".checked" : "")
-        + (ix === editIx ? ".editing" : ""), {}, handle, cb);
+      const text = el("span.step-t", { title: "Click to edit this point" }, main.text);
+      text.addEventListener("click", () => { editBlock = bi; renderPlan(); });
 
-      if (ix === editIx) {
-        const inp = el("input.step-edit", { spellcheck: "false" });
-        inp.value = item.text;
-
-        const commitText = () => {
-          const v = inp.value.trim();
-          item.text = v;
-          return v;
-        };
-        const rerender = async (save = true) => {
-          suppressBlur = true;
-          if (save) await savePlan();
-          renderPlan();
-        };
-
-        inp.addEventListener("keydown", async e => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            commitText();
-            if (!item.text) { editIx = null; await rerender(); return; }
-            // Continue the list: a sibling at the same level. A step that owns
-            // sub-steps gets its sibling after the whole block, not above its children.
-            const at = blockRange(meta.plan, ix)[1];
-            meta.plan.splice(at, 0, { text: "", checked: false, level: item.level });
-            editIx = at;
-            await rerender();
-            return;
-          }
-          if (e.key === "Tab") {
-            e.preventDefault();
-            commitText();
-            if (!e.shiftKey && top && ix > 0 && !hasChildren(meta.plan, ix)) item.level = 1;
-            else if (e.shiftKey && !top) item.level = 0;
-            normalizeLevels(meta.plan);
-            await rerender();
-            return;
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            commitText();
-            if (!item.text) meta.plan.splice(ix, 1);
-            editIx = null;
-            normalizeLevels(meta.plan);
-            await rerender();
-            return;
-          }
-          // Backspace on an empty row removes just that row. Any sub-steps it had
-          // survive and re-attach to the step above — never a silent cascade delete.
-          if (e.key === "Backspace" && inp.value === "") {
-            e.preventDefault();
-            meta.plan.splice(ix, 1);
-            editIx = ix > 0 ? ix - 1 : null;
-            normalizeLevels(meta.plan);
-            await rerender();
-            return;
-          }
-          if (e.key === "ArrowUp" && ix > 0) {
-            e.preventDefault(); commitText(); editIx = ix - 1; await rerender();
-            return;
-          }
-          if (e.key === "ArrowDown" && ix < meta.plan.length - 1) {
-            e.preventDefault(); commitText(); editIx = ix + 1; await rerender();
-            return;
-          }
-        });
-
-        inp.addEventListener("blur", async () => {
-          if (suppressBlur) return;
-          commitText();
-          if (!item.text) meta.plan.splice(ix, 1);
-          editIx = null;
-          normalizeLevels(meta.plan);
-          await savePlan();
-          renderPlan();
-        });
-
-        // Transient: tells you how to nest, only while you are actually typing.
-        const hint = el("span.step-hint", {},
-          top ? (ix > 0 ? "tab \u2192 sub-step" : "") : "shift+tab \u2192 step");
-        row.append(inp, hint);
-      } else {
-        const t = el("span.step-t", { title: "Click to edit" }, item.text);
-        t.addEventListener("click", () => { editIx = ix; caretEnd = true; renderPlan(); });
-        row.append(t,
-          el("button.del", { title: "Delete step", onclick: async () => {
-            const [a, b] = blockRange(meta.plan, ix);
-            meta.plan.splice(a, b - a);          // a step takes its sub-steps with it
-            normalizeLevels(meta.plan);
+      const row = el("div.step.top" + (main.checked ? ".checked" : ""), {},
+        num, cbMain, text,
+        el("button.del", { title: "Delete this point and its sub-points",
+          onclick: async () => {
+            meta.plan.splice(b.start, b.end - b.start);
             await savePlan(); renderPlan();
           } }, "\u00d7"));
-      }
 
+      // Drag moves the whole block, handle-only so clicks still reach the checkbox.
       row.draggable = false;
-      handle.addEventListener("mousedown", () => { row.draggable = true; });
-      handle.addEventListener("mouseup", () => { row.draggable = false; });
-      row.addEventListener("dragstart", () => { dragIx = ix; row.classList.add("dragging"); });
+      num.addEventListener("mousedown", () => { row.draggable = true; });
+      num.addEventListener("mouseup", () => { row.draggable = false; });
+      row.addEventListener("dragstart", () => { dragBlock = bi; row.classList.add("dragging"); });
       row.addEventListener("dragend", () => {
-        dragIx = null; row.classList.remove("dragging"); row.draggable = false;
+        dragBlock = null; row.classList.remove("dragging"); row.draggable = false;
       });
       row.addEventListener("dragover", e => { e.preventDefault(); row.classList.add("over"); });
       row.addEventListener("dragleave", () => row.classList.remove("over"));
       row.addEventListener("drop", async e => {
         e.preventDefault(); row.classList.remove("over");
-        if (dragIx === null || dragIx === ix) return;
-        // Dragging a high-level step carries its sub-steps along as one block.
-        const [a, b] = blockRange(meta.plan, dragIx);
-        if (ix >= a && ix < b) return;
-        const block = meta.plan.slice(a, b);
-        const rest = [...meta.plan.slice(0, a), ...meta.plan.slice(b)];
-        const target = ix > a ? ix - (b - a) : ix;
-        rest.splice(target, 0, ...block);
-        meta.plan = normalizeLevels(rest);
+        if (dragBlock === null || dragBlock === bi) return;
+        const src = blocks[dragBlock];
+        const moved = meta.plan.slice(src.start, src.end);
+        const rest = [...meta.plan.slice(0, src.start), ...meta.plan.slice(src.end)];
+        const target = blocks[bi];
+        const at = target.start > src.start ? target.start - moved.length : target.start;
+        rest.splice(at, 0, ...moved);
+        meta.plan = rest;
         await savePlan(); renderPlan();
       });
-      return row;
+
+      planBox.append(row);
+
+      b.items.slice(1).forEach((sub, si) => {
+        const cbSub = el("input.cb-sub", { type: "checkbox" });
+        cbSub.checked = sub.checked;
+        cbSub.addEventListener("change", async () => {
+          meta.plan[b.start + 1 + si].checked = cbSub.checked;
+          await savePlan(); renderPlan();
+        });
+        const st = el("span.step-t", { title: "Click to edit this point" }, sub.text);
+        st.addEventListener("click", () => { editBlock = bi; renderPlan(); });
+        planBox.append(el("div.step.sub" + (sub.checked ? ".checked" : ""), {},
+          el("span.step-n"), cbSub, st));
+      });
     });
 
-    const addLine = el("div.add-row", {
+    planBox.append(el("div.add-row", {
       onclick: () => {
         meta.plan.push({ text: "", checked: false, level: 0 });
-        editIx = meta.plan.length - 1;
+        editBlock = planBlocks().length - 1;
         renderPlan();
       },
-    }, el("span.plus", {}, "+"), el("span.add-hint", {}, "add step"));
+    }, el("span.plus", {}, "+"), el("span.add-hint", {}, "add point")));
+  }
 
-    planBox.replaceChildren(...rows, addLine);
+  /** The textarea that stands in for one block while you edit it. */
+  function blockEditor(b, bi) {
+    const ta = el("textarea.block-in", { spellcheck: "false" });
+    ta.value = blockToText(b);
 
-    // Restore focus into the row being typed, then re-arm blur handling.
-    if (editIx !== null) {
-      const inp = planBox.querySelectorAll(".step-edit")[0];
-      if (inp) {
-        inp.focus();
-        const pos = caretEnd ? inp.value.length : 0;
-        inp.setSelectionRange(pos, pos);
-      }
+    const fit = () => {
+      const scroller = document.scrollingElement || document.documentElement;
+      const y = scroller.scrollTop;
+      ta.style.height = "auto";
+      ta.style.height = Math.max(ta.scrollHeight, 52) + "px";
+      scroller.scrollTop = y;
+    };
+
+    let done = false;
+    async function commit() {
+      if (done) return;
+      done = true;
+      const items = textToItems(ta.value, b.items);
+      meta.plan.splice(b.start, b.end - b.start, ...items);
+      editBlock = null;
+      await savePlan();
+      renderPlan();
     }
-    suppressBlur = false;
+
+    ta.addEventListener("input", fit);
+    ta.addEventListener("blur", commit);
+    ta.addEventListener("keydown", e => {
+      if (e.key === "Escape") { e.preventDefault(); ta.blur(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); ta.blur(); return; }
+      if (listContinuation(ta, e)) { fit(); return; }
+    });
+
+    const wrap = el("div.block-edit", {}, el("span.step-n", {}, String(bi + 1).padStart(2, "0")), ta);
+    setTimeout(() => {
+      fit();
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }, 0);
+    return wrap;
   }
 
   renderPlan(); refreshMeter();
