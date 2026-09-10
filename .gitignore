@@ -21,6 +21,7 @@ __pycache__/
 Thumbs.db
 
 # Transient
+logs/
 *.tmp
 *.log
 nohup.out

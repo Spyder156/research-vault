@@ -112,10 +112,22 @@ files using the retired `exploring` / `done` statuses migrate forward automatica
 ```bash
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python run.py     # opens http://127.0.0.1:7777
+./.venv/bin/python run.py            # serve here, open the browser
+```
+
+Other forms:
+
+```bash
+./.venv/bin/python run.py --background   # detach; logs to logs/server.log
+./.venv/bin/python run.py --stop         # stop the running server
+./.venv/bin/python run.py --port 7788    # a different port
 ```
 
 Bound to `127.0.0.1` only — nothing is exposed to the network.
+
+**Everything the app writes stays in this folder**: `ideas/` for your notes, `logs/` for
+server output. Both are gitignored, so nothing personal is ever committed and nothing is
+scattered outside the repo.
 
 ## Keyboard
 
