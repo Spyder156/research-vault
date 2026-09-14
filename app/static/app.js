@@ -344,7 +344,11 @@ function renderHome() {
     main.append(el("div.listbar", {},
       el("h2", {}, state.q ? `Search: “${state.q}”` : "Ideas"),
       el("span.count", {}, `${total} of ${state.ideas.length}`),
-      grow(), label("order by"), sortSel));
+      grow(),
+      // Managing the taxonomy belongs next to the grouped list it reorganises.
+      el("button.btn.btn-quiet.btn-sm", { onclick: openTaxonomy }, "Manage fields"),
+      el("span.vline"),
+      label("order by"), sortSel));
   } else {
     main.append(el("div.home-lead", {}, grow(),
       el("span.count.label", {}, `${state.ideas.length} total`)));
@@ -1047,7 +1051,6 @@ function boot() {
   });
 
   $("#new-btn").addEventListener("click", openNewIdea);
-  $("#tax-btn").addEventListener("click", openTaxonomy);
   $("#wordmark").addEventListener("click", e => { e.preventDefault(); goLanding(); });
 
   $("#search").addEventListener("input", e => {
