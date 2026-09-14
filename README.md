@@ -110,12 +110,11 @@ files using the retired `exploring` / `done` statuses migrate forward automatica
 ## Run
 
 ```bash
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python run.py            # serve here, open the browser
+bash run.sh          # start (builds .venv on first run) and print the address
+bash run.sh stop     # stop
 ```
 
-Other forms:
+Or drive it directly:
 
 ```bash
 ./.venv/bin/python run.py --background   # detach; logs to logs/server.log
