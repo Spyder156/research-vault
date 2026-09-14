@@ -365,7 +365,11 @@ function renderHome() {
       // Managing the taxonomy belongs next to the grouped list it reorganises.
       el("button.btn.btn-quiet.btn-sm", { onclick: openTaxonomy }, "Manage fields"),
       el("span.vline"),
-      label("order by"), sortSel));
+      label("order by"), sortSel,
+      state.sort === "priority"
+        ? null
+        : el("span.hint-note", { title: "Switch to Priority to drag ideas into your own order" },
+            "drag needs Priority")));
   } else {
     main.append(el("div.home-lead", {}, grow(),
       el("span.count.label", {}, `${state.ideas.length} total`)));
@@ -436,35 +440,70 @@ async function saveOrder(items) {
 let dragSlug = null;
 
 function ideaRow(i, ix, items, field, sub) {
-  // Manual ordering only makes sense under the Priority sort and with no search
-  // narrowing the group.
+  // Manual ordering only means something under the Priority sort, and a search
+  // shows a partial group so dragging inside it would be meaningless.
   const canMove = state.sort === "priority" && !state.q;
+
+  // The grip is the drag source, never the row. The row is an <a>, and a browser
+  // answers a drag on a link with its own native link-drag (it hands over the URL
+  // and refuses our drop), which is why dragging the row itself did nothing.
+  const grip = el("span.grip" + (canMove ? "" : ".grip-off"),
+    { title: canMove ? "Drag to reorder" : "" }, canMove ? "\u22ee\u22ee" : "");
 
   const row = el("a.irow" + (canMove ? ".movable" : ""), { href: `#/idea/${i.slug}` },
     el(`span.irow-rail.bg-${i.status}`, { title: SLABEL[i.status] }),
     el("div.irow-main", {}, el("div.irow-title", {}, i.title)),
     el("div", {}, meter(i.plan_done, i.plan_total)),
-    canMove ? el("span.grip", { title: "Drag to reorder" }, "\u22ee\u22ee") : el("span"));
+    grip);
 
+  row.draggable = false;                 // kill the anchor's native link drag
   if (!canMove) return row;
 
-  row.draggable = true;
-  row.addEventListener("dragstart", e => {
+  grip.draggable = true;
+  grip.setAttribute("draggable", "true");
+
+  let justDragged = false;
+  grip.addEventListener("dragstart", e => {
     dragSlug = i.slug;
+    justDragged = true;
     row.classList.add("dragging");
-    e.dataTransfer.effectAllowed = "move";
-    try { e.dataTransfer.setData("text/plain", i.slug); } catch { /* jsdom */ }
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", i.slug); } catch { /* jsdom */ }
+      // Drag the whole row as the ghost, not the two-dot handle.
+      if (e.dataTransfer.setDragImage) {
+        try { e.dataTransfer.setDragImage(row, 20, row.offsetHeight / 2); } catch { /* ignore */ }
+      }
+    }
   });
-  row.addEventListener("dragend", () => { dragSlug = null; row.classList.remove("dragging"); });
-  row.addEventListener("dragover", e => {
-    if (!dragSlug || dragSlug === i.slug) return;
-    if (!items.some(x => x.slug === dragSlug)) return;   // only within this sub-group
+  grip.addEventListener("dragend", () => {
+    dragSlug = null;
+    row.classList.remove("dragging");
+    setTimeout(() => { justDragged = false; }, 0);
+  });
+  // A drag that ends on the row must not also follow the link.
+  row.addEventListener("click", e => { if (justDragged) e.preventDefault(); });
+
+  const accepts = () =>
+    dragSlug && dragSlug !== i.slug && items.some(x => x.slug === dragSlug);
+
+  // Chrome only offers a drop when BOTH dragenter and dragover are cancelled.
+  const allow = e => {
+    if (!accepts()) return;
     e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
     row.classList.add("drop-over");
+  };
+  row.addEventListener("dragenter", allow);
+  row.addEventListener("dragover", allow);
+  row.addEventListener("dragleave", e => {
+    // leaving for a child of the same row is not really leaving
+    if (e.relatedTarget && row.contains(e.relatedTarget)) return;
+    row.classList.remove("drop-over");
   });
-  row.addEventListener("dragleave", () => row.classList.remove("drop-over"));
   row.addEventListener("drop", async e => {
     e.preventDefault();
+    e.stopPropagation();
     row.classList.remove("drop-over");
     const from = items.findIndex(x => x.slug === dragSlug);
     if (from < 0 || from === ix) return;

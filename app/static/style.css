@@ -941,3 +941,20 @@ input.tax-in {
   padding: 2px 0;
 }
 input.tax-in:focus { border: none; box-shadow: inset 0 -1px 0 var(--ink-3); }
+
+/* drag handle: always visible when a row can actually be moved, so it is
+   discoverable — an invisible affordance reads as "drag is broken". */
+.grip {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: -3px;
+  color: var(--ink-3);
+  text-align: right;
+  cursor: grab;
+  padding: 0 2px;
+}
+.grip:active { cursor: grabbing; }
+.grip-off { cursor: default; }
+.irow .grip { opacity: 0.55; }
+.irow:hover .grip { opacity: 1; color: var(--ink-2); }
+.hint-note { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); margin-left: 8px; }
