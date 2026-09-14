@@ -228,6 +228,19 @@ class MovePayload(BaseModel):
     direction: str
 
 
+class ReorderPayload(BaseModel):
+    slugs: list[str]
+
+
+@app.post("/api/ideas/reorder")
+def api_reorder(body: ReorderPayload):
+    try:
+        storage.reorder_ideas(body.slugs)
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"no idea: {e}")
+    return {"ok": True}
+
+
 @app.post("/api/ideas/{slug}/move")
 def api_move_idea(slug: str, body: MovePayload):
     try:

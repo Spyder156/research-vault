@@ -12,9 +12,14 @@ attention. Expand a field (or search) and the wordmark parks itself top-left as 
 bar while the working view takes over. Clicking the wordmark returns you to the landing
 state; so does `Esc`.
 
-**Grouping.** Ideas are grouped by field, never by subfield. Within a group you choose the
-order: **Priority** (manual — hover a row for ▲▼ arrows), Subfield, Updated, Title, or
-Progress. Priority ranks are per-field, so reordering inside CV never disturbs Robotics.
+**Grouping.** Ideas nest two levels: **field**, then **subfield** indented beneath it.
+Both levels collapse; subfields start open. Ideas with no subfield collect under a "—"
+heading at the end of their field.
+
+Within a subfield you choose the order: **Priority** (manual — **drag a row** by any part of
+it), Subfield, Updated, Title, or Progress. Priority ranks are per sub-group, so dragging
+inside CV / SLAM never disturbs CV / Detection, and the position is written to disk so it
+survives a reload.
 
 **Idea page.** Title, a three-state status control, then four unlabelled blocks in order:
 a short description, a large long-form box, the Plan, and a notes scratchpad — followed by
@@ -63,7 +68,9 @@ or drag an image into the long box or the notes and it is stored in that idea's 
 The short description takes text only — no figures.
 
 Field and subfield are set when you create an idea, and can be changed from the two
-dropdowns at the very bottom of the idea page.
+dropdowns at the very bottom of the idea page. **Manage fields** in the list toolbar adds
+or removes them: each field has its own "add a subfield" line, and a single control at the
+bottom adds a new field.
 
 Nothing on any page uses the hand cursor, and hover states are instant — the only animation
 in the app is the wordmark moving between the landing and working layouts.

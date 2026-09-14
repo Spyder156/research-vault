@@ -264,6 +264,7 @@ const state = {
   ideas: [],
   taxonomy: {},
   open: new Set(),
+  closedSubs: new Set(),   // sub-groups are open unless explicitly collapsed
   q: "",
   hits: null,
   sort: localStorage.getItem("rv-sort") || "priority",
@@ -285,6 +286,10 @@ function applyMode() {
   shell.classList.toggle("work", !isHero());
 }
 
+const NO_SUB = "\u2014";                  // heading for ideas with no subfield
+
+/** field -> [ [subfield, ideas], ... ]. Fields A-Z, "Unfiled" last; the
+ *  no-subfield bucket sorts last inside its field. */
 function groupedIdeas() {
   const q = state.q.toLowerCase();
   const hits = new Set(state.hits || []);
@@ -294,21 +299,33 @@ function groupedIdeas() {
       i.title.toLowerCase().includes(q) || i.subfield.toLowerCase().includes(q) ||
       i.field.toLowerCase().includes(q) || hits.has(i.slug));
   }
-  const groups = new Map();
+
+  const fields = new Map();
   for (const i of list) {
     const f = i.field || UNFILED;
-    if (!groups.has(f)) groups.set(f, []);
-    groups.get(f).push(i);
+    const sub = i.subfield || NO_SUB;
+    if (!fields.has(f)) fields.set(f, new Map());
+    const subs = fields.get(f);
+    if (!subs.has(sub)) subs.set(sub, []);
+    subs.get(sub).push(i);
   }
+
   const cmp = {
     priority: (a, b) => a.order - b.order || a.created.localeCompare(b.created),
-    subfield: (a, b) => (a.subfield || "￿").localeCompare(b.subfield || "￿") || a.title.localeCompare(b.title),
+    subfield: (a, b) => a.title.localeCompare(b.title),
     updated: (a, b) => b.updated.localeCompare(a.updated),
     title: (a, b) => a.title.localeCompare(b.title),
     progress: (a, b) => (b.plan_total ? b.plan_done / b.plan_total : -1) - (a.plan_total ? a.plan_done / a.plan_total : -1),
   }[state.sort];
-  for (const arr of groups.values()) arr.sort(cmp);
-  return [...groups.entries()].sort((a, b) =>
+
+  const out = [];
+  for (const [f, subs] of fields) {
+    for (const arr of subs.values()) arr.sort(cmp);
+    const subList = [...subs.entries()].sort((a, b) =>
+      a[0] === NO_SUB ? 1 : b[0] === NO_SUB ? -1 : a[0].localeCompare(b[0]));
+    out.push([f, subList]);
+  }
+  return out.sort((a, b) =>
     a[0] === UNFILED ? 1 : b[0] === UNFILED ? -1 : a[0].localeCompare(b[0]));
 }
 
@@ -328,7 +345,7 @@ function goLanding() {
 function renderHome() {
   applyMode();
   const groups = groupedIdeas();
-  const total = groups.reduce((a, g) => a + g[1].length, 0);
+  const total = groups.reduce((a, [, subs]) => a + subs.reduce((n, [, arr]) => n + arr.length, 0), 0);
   const main = $("#main");
   main.replaceChildren();
 
@@ -360,52 +377,103 @@ function renderHome() {
       state.ideas.length ? "Nothing matches that search." : "Press N to create your first idea."));
     return;
   }
-  for (const [field, items] of groups) main.append(groupBlock(field, items));
+  for (const [field, subs] of groups) main.append(groupBlock(field, subs));
 }
 
-function groupBlock(field, items) {
+function groupBlock(field, subs) {
+  const count = subs.reduce((n, [, arr]) => n + arr.length, 0);
   const open = state.open.has(field) || !!state.q;
   const box = el("div.grp" + (open ? ".open" : ""));
+
   const head = el("button.grp-head", {
     onclick: () => {
       if (state.open.has(field)) state.open.delete(field); else state.open.add(field);
       renderHome();
     },
   },
-    el("span.caret", {}, "▶"),
+    el("span.caret", {}, "\u25b6"),
     el("span.grp-name", {}, field),
-    el("span.grp-n", {}, String(items.length)));
+    el("span.grp-n", {}, String(count)));
 
-  const body = el("div.grp-body", {},
-    ...(items.length
-      ? items.map((i, ix) => ideaRow(i, ix, items.length))
-      : [el("div.grp-empty", {}, "No ideas in this field yet.")]));
+  const body = el("div.grp-body");
+  if (!count) {
+    body.append(el("div.grp-empty", {}, "No ideas in this field yet."));
+  } else {
+    for (const [sub, items] of subs) {
+      // Sub-groups are open by default; the key namespaces them under the field.
+      const key = field + "/" + sub;
+      const subOpen = !state.closedSubs.has(key);
+      const subBox = el("div.sub-grp" + (subOpen ? ".open" : ""));
+      subBox.append(el("button.sub-head", {
+        onclick: () => {
+          if (state.closedSubs.has(key)) state.closedSubs.delete(key);
+          else state.closedSubs.add(key);
+          renderHome();
+        },
+      },
+        el("span.caret", {}, "\u25b6"),
+        el("span.sub-name" + (sub === NO_SUB ? ".sub-none" : ""), {}, sub),
+        el("span.grp-n", {}, String(items.length))));
+
+      const rows = el("div.sub-body");
+      items.forEach((i, ix) => rows.append(ideaRow(i, ix, items, field, sub)));
+      subBox.append(rows);
+      body.append(subBox);
+    }
+  }
 
   box.append(head, body);
   return box;
 }
 
-function ideaRow(i, ix, count) {
-  const canMove = state.sort === "priority" && !state.q;
-  const arrow = (dir, disabled, glyph) => el("button", {
-    title: disabled ? "" : `Move ${dir}`,
-    disabled: disabled || undefined,
-    onclick: async e => {
-      e.preventDefault(); e.stopPropagation();
-      await api("POST", `/api/ideas/${i.slug}/move`, { direction: dir });
-      await refreshIndex();
-      renderHome();
-    },
-  }, glyph);
+/** Persist the new order of one visible sub-group, then redraw. */
+async function saveOrder(items) {
+  await api("POST", "/api/ideas/reorder", { slugs: items.map(x => x.slug) });
+  await refreshIndex();
+  renderHome();
+}
 
-  return el("a.irow", { href: `#/idea/${i.slug}` },
+let dragSlug = null;
+
+function ideaRow(i, ix, items, field, sub) {
+  // Manual ordering only makes sense under the Priority sort and with no search
+  // narrowing the group.
+  const canMove = state.sort === "priority" && !state.q;
+
+  const row = el("a.irow" + (canMove ? ".movable" : ""), { href: `#/idea/${i.slug}` },
     el(`span.irow-rail.bg-${i.status}`, { title: SLABEL[i.status] }),
     el("div.irow-main", {}, el("div.irow-title", {}, i.title)),
-    el("div.irow-field" + (i.subfield ? "" : ".irow-none"), {}, i.subfield || "—"),
     el("div", {}, meter(i.plan_done, i.plan_total)),
-    canMove
-      ? el("div.prio", {}, arrow("up", ix === 0, "▲"), arrow("down", ix === count - 1, "▼"))
-      : el("div"));
+    canMove ? el("span.grip", { title: "Drag to reorder" }, "\u22ee\u22ee") : el("span"));
+
+  if (!canMove) return row;
+
+  row.draggable = true;
+  row.addEventListener("dragstart", e => {
+    dragSlug = i.slug;
+    row.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", i.slug); } catch { /* jsdom */ }
+  });
+  row.addEventListener("dragend", () => { dragSlug = null; row.classList.remove("dragging"); });
+  row.addEventListener("dragover", e => {
+    if (!dragSlug || dragSlug === i.slug) return;
+    if (!items.some(x => x.slug === dragSlug)) return;   // only within this sub-group
+    e.preventDefault();
+    row.classList.add("drop-over");
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drop-over"));
+  row.addEventListener("drop", async e => {
+    e.preventDefault();
+    row.classList.remove("drop-over");
+    const from = items.findIndex(x => x.slug === dragSlug);
+    if (from < 0 || from === ix) return;
+    const next = items.slice();
+    const [moved] = next.splice(from, 1);
+    next.splice(ix, 0, moved);
+    await saveOrder(next);
+  });
+  return row;
 }
 
 // ---------------------------------------------------------------- prose box
@@ -968,61 +1036,92 @@ function openNewIdea() {
 }
 
 function openTaxonomy() {
-  const listBox = el("div.ref-list", { style: "max-height:46vh;overflow-y:auto" });
-  const countFor = (f, s) => state.ideas.filter(i => i.field === f && (!s || i.subfield === s)).length;
-  async function reload() { state.taxonomy = await api("GET", "/api/taxonomy"); draw(); }
+  const listBox = el("div.tax");
+  const countFor = (f, sub) =>
+    state.ideas.filter(i => i.field === f && (!sub || i.subfield === sub)).length;
 
-  async function remove(field, subfield) {
-    if (!confirm(`Remove “${subfield ? field + " / " + subfield : field}” from the taxonomy?`)) return;
+  async function reload() {
+    state.taxonomy = await api("GET", "/api/taxonomy");
+    draw();
+    if (!isDetail()) renderHome();
+  }
+
+  async function remove(field, sub) {
+    const what = sub ? `${field} / ${sub}` : field;
+    if (!confirm(`Remove “${what}”?`)) return;
     try {
-      await api("DELETE", `/api/taxonomy?field=${encodeURIComponent(field)}&subfield=${encodeURIComponent(subfield || "")}`);
-      await reload(); toast("removed");
+      await api("DELETE",
+        `/api/taxonomy?field=${encodeURIComponent(field)}&subfield=${encodeURIComponent(sub || "")}`);
+      await reload();
+      toast("removed");
     } catch (err) { alert(err.message); }
   }
 
+  async function add(field, sub) {
+    try {
+      await api("POST", "/api/taxonomy", { field, subfield: sub || "" });
+      await reload();
+      toast(sub ? "subfield added" : "field added");
+      return true;
+    } catch (err) { alert(err.message); return false; }
+  }
+
   function draw() {
-    const rows = [];
-    for (const [f, subs] of Object.entries(state.taxonomy)) {
-      rows.push(el("div.ref-row", { style: "background:var(--surface-2)" },
-        el("span.rel-t", { style: "font-weight:600" }, f),
-        el("span.ref-host", {}, `${countFor(f)} idea${countFor(f) === 1 ? "" : "s"}`),
-        el("button.del", { style: "visibility:visible", title: "Remove field", onclick: () => remove(f, "") }, "×")));
-      for (const s of subs) {
-        rows.push(el("div.ref-row", {},
-          el("span.ref-i", {}, "└"),
-          el("span.rel-t", {}, s),
-          el("span.ref-host", {}, String(countFor(f, s))),
-          el("button.del", { style: "visibility:visible", title: "Remove subfield", onclick: () => remove(f, s) }, "×")));
+    listBox.replaceChildren();
+
+    for (const [field, subs] of Object.entries(state.taxonomy)) {
+      const block = el("div.tax-field");
+
+      block.append(el("div.tax-field-head", {},
+        el("span.tax-name", {}, field),
+        el("span.tax-count", {}, `${countFor(field)} idea${countFor(field) === 1 ? "" : "s"}`),
+        el("button.del", { title: `Remove ${field}`, onclick: () => remove(field, "") }, "\u00d7")));
+
+      for (const sub of subs) {
+        block.append(el("div.tax-sub", {},
+          el("span.tax-sub-name", {}, sub),
+          el("span.tax-count", {}, String(countFor(field, sub))),
+          el("button.del", { title: `Remove ${sub}`, onclick: () => remove(field, sub) }, "\u00d7")));
       }
+
+      // Each field carries its own "add a subfield here" line — no picker needed.
+      const subIn = el("input.txt.tax-in", { placeholder: `add a subfield to ${field}` });
+      subIn.addEventListener("keydown", async e => {
+        if (e.key !== "Enter") return;
+        const v = subIn.value.trim();
+        if (!v) return;
+        subIn.value = "";
+        await add(field, v);
+      });
+      block.append(el("div.tax-add", {}, el("span.plus", {}, "+"), subIn));
+      listBox.append(block);
     }
-    const fIn = el("input.txt", { placeholder: "New field" });
-    const pick = el("select.sel", el("option", { value: "" }, "— or into —"),
-      ...Object.keys(state.taxonomy).map(f => el("option", { value: f }, f)));
-    const sIn = el("input.txt", { placeholder: "New subfield" });
-    const addBtn = el("button.btn.btn-sm", { onclick: async () => {
-      const field = fIn.value.trim() || pick.value;
-      if (!field) { fIn.focus(); return; }
-      try {
-        await api("POST", "/api/taxonomy", { field, subfield: sIn.value.trim() });
-        fIn.value = ""; sIn.value = "";
-        await reload(); toast("added");
-      } catch (err) { alert(err.message); }
-    } }, "Add");
-    for (const i of [fIn, sIn]) i.addEventListener("keydown", e => { if (e.key === "Enter") addBtn.click(); });
-    listBox.replaceChildren(...rows, el("div.ref-add", { style: "flex-wrap:wrap" }, fIn, pick, sIn, addBtn));
+
+    // One clearly separate control for a brand-new field.
+    const fieldIn = el("input.txt.tax-in", { placeholder: "add a new field" });
+    fieldIn.addEventListener("keydown", async e => {
+      if (e.key !== "Enter") return;
+      const v = fieldIn.value.trim();
+      if (!v) return;
+      fieldIn.value = "";
+      await add(v, "");
+    });
+    listBox.append(el("div.tax-newfield", {}, el("span.plus", {}, "+"), fieldIn));
   }
   draw();
 
   modal({
     heading: "Fields & Subfields",
     body: [
-      el("div", { style: "font-size:12.5px;color:var(--ink-3);margin-bottom:11px" },
-        "These group your ideas and fill the dropdowns. A field still used by an idea cannot be removed."),
+      el("div.tax-note", {},
+        "Fields group your ideas; subfields group them again inside a field. ",
+        "A field or subfield still in use cannot be removed."),
       listBox,
     ],
-    actions: c => [el("button.btn.btn-solid", { onclick: () => { c(); if (!isDetail()) renderHome(); } }, "Done")],
+    actions: c => [el("button.btn.btn-solid", { onclick: c }, "Done")],
   });
 }
+
 
 function renderLegend() {
   $("#legend").replaceChildren(...STATUSES.map(s =>

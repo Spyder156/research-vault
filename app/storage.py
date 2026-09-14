@@ -252,6 +252,22 @@ def move_idea(slug: str, direction: str) -> dict:
     return meta
 
 
+@_locked
+def reorder_ideas(slugs: list[str]) -> None:
+    """Assign ranks 0..n-1 in the given order.
+
+    expects: slugs are the ideas of ONE visible group (field + subfield), already
+    in their new display order. Ranks are only compared within a group, so the
+    same numbers recurring in another group is fine. Does not touch "updated" —
+    moving a card is not an edit to its content.
+    """
+    for rank, slug in enumerate(slugs):
+        meta = load_meta(slug)
+        if meta["order"] != rank:
+            meta["order"] = rank
+            save_meta(slug, meta)
+
+
 def read_text(slug: str, which: str) -> str:
     assert which in TEXT_FIELDS
     path = idea_dir(slug) / f"{which}.md"
