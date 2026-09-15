@@ -274,7 +274,7 @@ input.txt:focus { border-color: var(--ink-3); }
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 11px 14px;
+  padding: 13px 14px;
   cursor: default;
   user-select: none;
   background: none;
@@ -294,7 +294,7 @@ input.txt:focus { border-color: var(--ink-3); }
 .grp.open .caret { transform: rotate(90deg); }
 /* Visual rank is field > subfield > idea: size, weight and brightness all
    step DOWN as you go deeper, so the hierarchy reads without any lines. */
-.grp-name { font-size: 16px; font-weight: 680; letter-spacing: -0.02em; color: var(--ink); }
+.grp-name { font-size: 18px; font-weight: 700; letter-spacing: -0.025em; color: var(--ink); }
 .grp-n { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
 
 .grp-body { border-top: 1px solid var(--line); display: none; }
@@ -320,9 +320,9 @@ input.txt:focus { border-color: var(--ink-3); }
 .irow-rail { align-self: stretch; min-height: 30px; }
 .irow-main { min-width: 0; }
 .irow-title {
-  font-size: 13px;
-  font-weight: 450;
-  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink-3);
   letter-spacing: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -873,7 +873,7 @@ span.tex[data-display="1"] { display: block; overflow-x: auto; overflow-y: hidde
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 7px 8px 7px 30px;      /* indented one step under its field */
+  padding: 8px 8px 8px 34px;      /* indented one step under its field */
   border: none;
   background: none;
   font: inherit;
@@ -885,13 +885,13 @@ span.tex[data-display="1"] { display: block; overflow-x: auto; overflow-y: hidde
 .sub-head .caret { font-size: 8px; }
 .sub-grp.open > .sub-head .caret { transform: rotate(90deg); }
 .sub-head .caret { transition: transform 0.15s var(--ease); }
-.sub-name { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink-2); }
+.sub-name { font-size: 14px; font-weight: 600; letter-spacing: -0.008em; color: var(--ink-2); }
 .sub-name.sub-none { color: var(--ink-3); font-weight: 500; }
 
 .sub-body { display: none; }
 .sub-grp.open > .sub-body { display: block; }
 /* idea rows sit one step deeper again */
-.sub-body .irow { padding-left: 16px; }
+.sub-body .irow { padding-left: 54px; }
 
 /* drag handle + drop feedback */
 .irow.movable { user-select: none; }
@@ -988,80 +988,86 @@ body.dragging-now .irow:hover,
 body.dragging-now .sub-head:hover { background: inherit; }
 
 /* ======================= RATER ======================= */
+/* A compact equaliser parked at the bottom-right: ten vertical 1-10 sliders. */
 
-.rater { border: 1px solid var(--line); background: var(--surface); }
-.rate-row {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) 26px 18px;
-  gap: 12px;
+.rater-wrap { display: flex; justify-content: flex-end; margin-top: 34px; }
+.rater-card { border: 1px solid var(--line); background: var(--surface); width: fit-content; }
+.rater-head {
+  display: flex;
   align-items: center;
-  padding: 7px 13px;
+  gap: 10px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
 }
-.rate-row:last-child { border-bottom: none; }
-.rate-row:hover { background: var(--hover); }
-.rate-label { font-size: 12.5px; color: var(--ink-2); }
-.rate-val {
-  font-family: var(--mono);
-  font-size: 12px;
-  text-align: right;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.rate-val.unrated { color: var(--ink-3); }
-.rate-clear {
-  border: none;
-  background: none;
-  color: var(--ink-3);
-  font-size: 14px;
-  line-height: 1;
-  padding: 0;
-  cursor: default;
-  visibility: hidden;
-}
-.rate-row:hover .rate-clear { visibility: visible; }
-.rate-clear:hover { color: var(--danger); }
-
 .rater-avg {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.rater-avg.unrated { color: var(--ink-3); }
+.rater-avg.unrated { color: var(--ink-3); font-size: 9.5px; }
 
-/* square slider, matching the rest of the chrome */
+.rater { display: flex; gap: 1px; padding: 7px 8px 6px; }
+.rate-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 24px;
+}
+.rate-col:hover { background: var(--hover); }
+.rate-val {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.rate-val.unrated { color: var(--ink-3); }
+.rate-abbr {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  line-height: 1;
+}
+
+/* Vertical slider: modern browsers use writing-mode, older WebKit the appearance
+   keyword. Both are set so the control is upright either way. */
 input.rate-slider {
   --fill: 44%;
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 16px;
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 14px;
+  height: 58px;
   background: transparent;
   outline: none;
   cursor: default;
   margin: 0;
+  padding: 0;
 }
 input.rate-slider::-webkit-slider-runnable-track {
-  height: 4px;
-  background: linear-gradient(to right, var(--ink-2) var(--fill), var(--line-2) var(--fill));
+  width: 3px;
+  background: linear-gradient(to top, var(--ink-2) var(--fill), var(--line-2) var(--fill));
 }
 input.rate-slider::-moz-range-track {
-  height: 4px;
-  background: linear-gradient(to right, var(--ink-2) var(--fill), var(--line-2) var(--fill));
+  width: 3px;
+  background: linear-gradient(to top, var(--ink-2) var(--fill), var(--line-2) var(--fill));
 }
 input.rate-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 8px;
-  height: 14px;
-  margin-top: -5px;
+  width: 11px;
+  height: 6px;
+  margin-left: -4px;
   background: var(--ink);
   border: none;
   border-radius: 0;
 }
 input.rate-slider::-moz-range-thumb {
-  width: 8px;
-  height: 14px;
+  width: 11px;
+  height: 6px;
   background: var(--ink);
   border: none;
   border-radius: 0;
@@ -1080,6 +1086,9 @@ input.rate-slider.unrated::-moz-range-thumb { background: var(--line-3); }
 .irow:hover .score { color: var(--ink-2); }
 
 /* A grab area must not also pan/scroll the page on touch or pen. */
-.grip, .sub-grip { touch-action: none; }
+/* The whole row / header is the grab area now, so it must not pan on touch. */
+.irow.movable, .sub-head { touch-action: none; }
+.sub-head, .irow.movable .grip { cursor: grab; }
+body.dragging-now, body.dragging-now * { cursor: grabbing !important; }
 /* Belt and braces: never let the browser start its own drag on a list row. */
 .irow, .irow * { -webkit-user-drag: none; }

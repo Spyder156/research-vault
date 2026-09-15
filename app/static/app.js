@@ -143,9 +143,10 @@ function flipMove(nodes, mutate) {
  *   canDrag   - (item) => bool, to exclude pinned rows
  *   onCommit  - (orderedItems) => Promise, called once on release if order changed
  */
-function sortable(container, { itemSel, handleSel, canDrag, onCommit }) {
+function sortable(container, { itemSel, handleSel, canDrag, reject, onCommit }) {
   container.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
+    if (reject && reject(e.target)) return;
     const handle = handleSel ? e.target.closest(handleSel) : e.target.closest(itemSel);
     if (!handle || !container.contains(handle)) return;
     const item = handle.closest(itemSel);
@@ -192,6 +193,11 @@ function sortable(container, { itemSel, handleSel, canDrag, onCommit }) {
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
       if (!moved) return;
+      // pointerup is followed by a click; without this a drag would also toggle
+      // the subfield open or follow the idea link.
+      const swallow = ev => { ev.preventDefault(); ev.stopPropagation(); };
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, true), 0);
       ghost.remove();
       item.classList.remove("drag-src");
       document.body.classList.remove("dragging-now");
@@ -386,16 +392,16 @@ function applyMode() {
 // Idea rater. Every axis reads "higher is better", so one slider style fits all
 // and the average across them is meaningful.
 const RATINGS = [
-  ["creativity",  "Creativity",        "how original the angle is"],
-  ["novelty",     "Novelty",           "how unlike existing work"],
-  ["feasibility", "Feasibility",       "can you actually pull it off"],
-  ["compute",     "Compute Efficiency", "10 = runs on what you have"],
-  ["data",        "Data Availability", "10 = the data already exists"],
-  ["impact",      "Profile Impact",    "what it does for your name"],
-  ["money",       "Monetary Value",    "fundable or commercialisable"],
-  ["venue",       "Conference Placement", "odds at a top venue"],
-  ["speed",       "Time to Result",    "10 = a first result lands fast"],
-  ["interest",    "Personal Interest", "how much you want to do it"],
+  ["creativity",  "Creativity",           "CRE", "how original the angle is"],
+  ["novelty",     "Novelty",              "NOV", "how unlike existing work"],
+  ["feasibility", "Feasibility",          "FEA", "can you actually pull it off"],
+  ["compute",     "Compute Efficiency",   "CMP", "10 = runs on what you have"],
+  ["data",        "Data Availability",    "DAT", "10 = the data already exists"],
+  ["impact",      "Profile Impact",       "IMP", "what it does for your name"],
+  ["money",       "Monetary Value",       "MON", "fundable or commercialisable"],
+  ["venue",       "Conference Placement", "VEN", "odds at a top venue"],
+  ["speed",       "Time to Result",       "SPD", "10 = a first result lands fast"],
+  ["interest",    "Personal Interest",    "INT", "how much you want to do it"],
 ];
 const RATING_LABEL = Object.fromEntries(RATINGS.map(([k, l]) => [k, l]));
 
@@ -587,7 +593,7 @@ function groupBlock(field, subs) {
       if (state.sort === "priority" && !state.q) {
         sortable(rows, {
           itemSel: ".irow",
-          handleSel: ".grip",
+          handleSel: ".irow",            // hold anywhere on the row
           onCommit: async ordered => {
             await api("POST", "/api/ideas/reorder", { slugs: ordered.map(n => n.dataset.key) });
             await refreshIndex();
@@ -600,7 +606,9 @@ function groupBlock(field, subs) {
     // Subfields reorder inside their field. The "\u2014" bucket stays put.
     sortable(body, {
       itemSel: ".sub-grp",
-      handleSel: ".sub-grip",
+      handleSel: ".sub-head",           // hold anywhere on the header
+      // Only the header grabs it; a pointer on the rows inside belongs to them.
+      reject: t => !!t.closest(".sub-body"),
       canDrag: n => n.dataset.real === "1",
       onCommit: async ordered => {
         const names = ordered.filter(n => n.dataset.real === "1").map(n => n.dataset.key);
@@ -1024,26 +1032,23 @@ async function renderDetail(slug) {
     el("div.sec-head", {}, hr(), planMeter),
     planBox);
 
-  // --- rater: ten 1-10 sliders, autosaved
+  // --- rater: ten vertical 1-10 sliders, compact, bottom-right of the page
   const raterBox = el("div.rater");
   const raterAvg = el("span.rater-avg");
 
   function renderRater() {
-    raterBox.replaceChildren(...RATINGS.map(([key, lbl, hint]) => {
+    raterBox.replaceChildren(...RATINGS.map(([key, lbl, abbr, hint]) => {
       const rated = typeof meta.ratings[key] === "number";
       const val = rated ? meta.ratings[key] : 5;
+      const tip = `${lbl} \u2014 ${hint}\ndouble-click to clear`;
 
       const num = el("span.rate-val" + (rated ? "" : ".unrated"), {}, rated ? String(val) : "\u2013");
-      const slider = el("input.rate-slider", {
-        type: "range", min: "1", max: "10", step: "1", title: hint,
+      const slider = el("input.rate-slider" + (rated ? "" : ".unrated"), {
+        type: "range", min: "1", max: "10", step: "1", title: tip,
+        "aria-label": lbl,
       });
       slider.value = String(val);
-      if (!rated) slider.classList.add("unrated");
-
-      const paint = v => {
-        // Fill the track up to the thumb so the level reads at a glance.
-        slider.style.setProperty("--fill", ((v - 1) / 9 * 100) + "%");
-      };
+      const paint = v => slider.style.setProperty("--fill", ((v - 1) / 9 * 100) + "%");
       paint(val);
 
       const commit = debounce(async () => {
@@ -1062,33 +1067,30 @@ async function renderDetail(slug) {
         updateAvg();
         commit();
       });
+      // No room for a clear button at this size; double-click does it.
+      slider.addEventListener("dblclick", async () => {
+        if (typeof meta.ratings[key] !== "number") return;
+        delete meta.ratings[key];
+        await patch({ ratings: meta.ratings });
+        renderRater();
+      });
 
-      const clear = el("button.rate-clear", {
-        title: "Clear this rating",
-        onclick: async () => {
-          delete meta.ratings[key];
-          await patch({ ratings: meta.ratings });
-          renderRater();
-        },
-      }, rated ? "\u00d7" : "");
-
-      return el("div.rate-row", {},
-        el("span.rate-label", { title: hint }, lbl),
-        slider, num, clear);
+      return el("div.rate-col", { title: tip }, num, slider, el("span.rate-abbr", {}, abbr));
     }));
     updateAvg();
   }
 
   function updateAvg() {
     const avg = ratingAvg(meta);
-    raterAvg.textContent = avg === null ? "unrated" : avg.toFixed(1) + " / 10";
+    raterAvg.textContent = avg === null ? "unrated" : avg.toFixed(1);
     raterAvg.classList.toggle("unrated", avg === null);
   }
   renderRater();
 
-  const raterSec = el("div.sec", {},
-    el("div.sec-head", {}, label("Rating"), hr(), raterAvg),
-    raterBox);
+  const raterSec = el("div.rater-wrap", {},
+    el("div.rater-card", {},
+      el("div.rater-head", {}, label("Rating"), grow(), raterAvg),
+      raterBox));
 
   // --- links & reading: two columns — the name you give it, and the link itself
   const linkList = el("div.links");
@@ -1174,7 +1176,7 @@ async function renderDetail(slug) {
   renderFiling();
 
   const page = el("div", {}, bar, h1, filing, states,
-    descBox, detailBox, planSec, raterSec, linkList, figSec);
+    descBox, detailBox, planSec, linkList, figSec, raterSec);
   page.flushAll = () => { descBox.flush(); detailBox.flush(); };
   $("#main").replaceChildren(page);
 }
