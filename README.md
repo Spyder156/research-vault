@@ -16,8 +16,9 @@ state; so does `Esc`.
 Both levels collapse; subfields start open. Ideas with no subfield collect under a "—"
 heading at the end of their field.
 
-Field, subfield and idea step **down** in size, weight and brightness, so the hierarchy
-reads without needing any rules or boxes.
+Field, subfield and idea step **down** in size (16.5 / 14 / 12.5), weight (700 / 600 / 400)
+and brightness (`ink` / `ink-2` / `ink-3`). The hierarchy is carried entirely by type — rows
+stay tight and the list stays dense.
 
 **Dragging** uses pointer events, not HTML5 drag-and-drop (a browser answers a drag on a
 link with its own link-drag and swallows the gesture). **Hold anywhere** on an idea row to
@@ -46,13 +47,13 @@ sub-points are working detail. Ticks survive re-editing: any line whose wording 
 change keeps its state. Each point is edited on its own, and dragging one by its number
 carries its sub-points along.
 
-**Rating.** A compact ten-column panel at the bottom-right of the idea page, one vertical
-1–10 slider per axis — Creativity, Novelty, Feasibility, Compute
+**Rating.** A card at the bottom-right of the idea page, one named 1–10 slider per axis — Creativity, Novelty, Feasibility, Compute
 Efficiency, Data Availability, Profile Impact, Monetary Value, Conference Placement, Time to
 Result, Personal Interest. Every axis reads "higher is better", so the average across them
-means something; it shows in the panel header and as a small number on each list row. Sort a
+means something; it shows in the card header and as a small number on each list row. Sort a
 subfield by any single axis or by the overall average — unrated ideas sink to the bottom.
-Double-click a slider to clear that axis.
+Hover a row and `×` clears that axis. The sliders are drawn entirely in theme tokens — a
+native range input renders in the browser's own accent colour, which has no place here.
 
 **Links & Reading** is a two-column table: the name you give a paper on the left, and a
 short `Link` on the right that carries the full URL.

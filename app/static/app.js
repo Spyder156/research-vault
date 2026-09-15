@@ -1032,20 +1032,18 @@ async function renderDetail(slug) {
     el("div.sec-head", {}, hr(), planMeter),
     planBox);
 
-  // --- rater: ten vertical 1-10 sliders, compact, bottom-right of the page
+  // --- rater: ten horizontal 1-10 sliders, full names, bottom-right of the page
   const raterBox = el("div.rater");
   const raterAvg = el("span.rater-avg");
 
   function renderRater() {
-    raterBox.replaceChildren(...RATINGS.map(([key, lbl, abbr, hint]) => {
+    raterBox.replaceChildren(...RATINGS.map(([key, lbl, , hint]) => {
       const rated = typeof meta.ratings[key] === "number";
       const val = rated ? meta.ratings[key] : 5;
-      const tip = `${lbl} \u2014 ${hint}\ndouble-click to clear`;
 
       const num = el("span.rate-val" + (rated ? "" : ".unrated"), {}, rated ? String(val) : "\u2013");
       const slider = el("input.rate-slider" + (rated ? "" : ".unrated"), {
-        type: "range", min: "1", max: "10", step: "1", title: tip,
-        "aria-label": lbl,
+        type: "range", min: "1", max: "10", step: "1", title: hint, "aria-label": lbl,
       });
       slider.value = String(val);
       const paint = v => slider.style.setProperty("--fill", ((v - 1) / 9 * 100) + "%");
@@ -1067,15 +1065,20 @@ async function renderDetail(slug) {
         updateAvg();
         commit();
       });
-      // No room for a clear button at this size; double-click does it.
-      slider.addEventListener("dblclick", async () => {
-        if (typeof meta.ratings[key] !== "number") return;
-        delete meta.ratings[key];
-        await patch({ ratings: meta.ratings });
-        renderRater();
-      });
 
-      return el("div.rate-col", { title: tip }, num, slider, el("span.rate-abbr", {}, abbr));
+      const clear = el("button.rate-clear", {
+        title: "Clear this rating",
+        onclick: async () => {
+          if (typeof meta.ratings[key] !== "number") return;
+          delete meta.ratings[key];
+          await patch({ ratings: meta.ratings });
+          renderRater();
+        },
+      }, rated ? "\u00d7" : "");
+
+      return el("div.rate-row", {},
+        el("span.rate-label", { title: hint }, lbl),
+        slider, num, clear);
     }));
     updateAvg();
   }
