@@ -292,7 +292,9 @@ input.txt:focus { border-color: var(--ink-3); }
   width: 9px;
 }
 .grp.open .caret { transform: rotate(90deg); }
-.grp-name { font-size: 14.5px; font-weight: 600; letter-spacing: -0.005em; }
+/* Visual rank is field > subfield > idea: size, weight and brightness all
+   step DOWN as you go deeper, so the hierarchy reads without any lines. */
+.grp-name { font-size: 16px; font-weight: 680; letter-spacing: -0.02em; color: var(--ink); }
 .grp-n { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
 
 .grp-body { border-top: 1px solid var(--line); display: none; }
@@ -303,7 +305,7 @@ input.txt:focus { border-color: var(--ink-3); }
 
 .irow {
   display: grid;
-  grid-template-columns: 3px minmax(0, 1fr) 132px 96px 40px;
+  grid-template-columns: 3px minmax(0, 1fr) 34px 96px 34px;
   gap: 14px;
   align-items: center;
   padding: 11px 14px 11px 0;
@@ -314,12 +316,14 @@ input.txt:focus { border-color: var(--ink-3); }
 }
 .irow:last-child { border-bottom: none; }
 .irow:hover { background: var(--hover); }
+.irow:hover .irow-title { color: var(--ink); }
 .irow-rail { align-self: stretch; min-height: 30px; }
 .irow-main { min-width: 0; }
 .irow-title {
-  font-size: 14px;
-  font-weight: 550;
-  letter-spacing: -0.005em;
+  font-size: 13px;
+  font-weight: 450;
+  color: var(--ink-2);
+  letter-spacing: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -719,7 +723,7 @@ input.title-in {
 ::selection { background: var(--ink); color: var(--page); }
 
 @media (max-width: 900px) {
-  .irow { grid-template-columns: 3px minmax(0, 1fr) 96px 40px; }
+  .irow { grid-template-columns: 3px minmax(0, 1fr) 34px 34px; }
   .irow-field { display: none; }
   #shell.hero .word { font-size: 32px; }
 }
@@ -859,20 +863,29 @@ span.tex[data-display="1"] { display: block; overflow-x: auto; overflow-y: hidde
 .sub-head {
   display: flex;
   align-items: center;
-  gap: 9px;
   width: 100%;
-  padding: 7px 14px 7px 30px;     /* indented one step under its field */
-  border: none;
   background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.sub-head:hover { background: var(--hover); }
+.sub-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px 7px 30px;      /* indented one step under its field */
+  border: none;
+  background: none;
   font: inherit;
   text-align: left;
-  color: var(--ink-2);
+  color: inherit;
   cursor: default;
 }
-.sub-head:hover { background: var(--hover); color: var(--ink); }
+.sub-grip { padding-right: 12px; }
 .sub-head .caret { font-size: 8px; }
 .sub-grp.open > .sub-head .caret { transform: rotate(90deg); }
-.sub-name { font-size: 12.5px; font-weight: 550; letter-spacing: -0.003em; }
+.sub-head .caret { transition: transform 0.15s var(--ease); }
+.sub-name { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink-2); }
 .sub-name.sub-none { color: var(--ink-3); font-weight: 500; }
 
 .sub-body { display: none; }
@@ -958,3 +971,115 @@ input.tax-in:focus { border: none; box-shadow: inset 0 -1px 0 var(--ink-3); }
 .irow .grip { opacity: 0.55; }
 .irow:hover .grip { opacity: 1; color: var(--ink-2); }
 .hint-note { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); margin-left: 8px; }
+
+/* ======================= POINTER DRAG ======================= */
+
+/* the element left in the list while its copy follows the cursor */
+.drag-src { opacity: 0.25; }
+.drag-ghost {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line-3);
+  background: var(--surface);
+  opacity: 0.96;
+}
+/* while a drag runs, nothing else should select or highlight */
+body.dragging-now { user-select: none; }
+body.dragging-now .irow:hover,
+body.dragging-now .sub-head:hover { background: inherit; }
+
+/* ======================= RATER ======================= */
+
+.rater { border: 1px solid var(--line); background: var(--surface); }
+.rate-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 26px 18px;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 13px;
+  border-bottom: 1px solid var(--line);
+}
+.rate-row:last-child { border-bottom: none; }
+.rate-row:hover { background: var(--hover); }
+.rate-label { font-size: 12.5px; color: var(--ink-2); }
+.rate-val {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rate-val.unrated { color: var(--ink-3); }
+.rate-clear {
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  cursor: default;
+  visibility: hidden;
+}
+.rate-row:hover .rate-clear { visibility: visible; }
+.rate-clear:hover { color: var(--danger); }
+
+.rater-avg {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rater-avg.unrated { color: var(--ink-3); }
+
+/* square slider, matching the rest of the chrome */
+input.rate-slider {
+  --fill: 44%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  outline: none;
+  cursor: default;
+  margin: 0;
+}
+input.rate-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: linear-gradient(to right, var(--ink-2) var(--fill), var(--line-2) var(--fill));
+}
+input.rate-slider::-moz-range-track {
+  height: 4px;
+  background: linear-gradient(to right, var(--ink-2) var(--fill), var(--line-2) var(--fill));
+}
+input.rate-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 8px;
+  height: 14px;
+  margin-top: -5px;
+  background: var(--ink);
+  border: none;
+  border-radius: 0;
+}
+input.rate-slider::-moz-range-thumb {
+  width: 8px;
+  height: 14px;
+  background: var(--ink);
+  border: none;
+  border-radius: 0;
+}
+input.rate-slider.unrated::-webkit-slider-thumb { background: var(--line-3); }
+input.rate-slider.unrated::-moz-range-thumb { background: var(--line-3); }
+
+/* average chip on a list row */
+.irow-score { text-align: right; }
+.score {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.irow:hover .score { color: var(--ink-2); }
+
+/* A grab area must not also pan/scroll the page on touch or pen. */
+.grip, .sub-grip { touch-action: none; }
+/* Belt and braces: never let the browser start its own drag on a list row. */
+.irow, .irow * { -webkit-user-drag: none; }

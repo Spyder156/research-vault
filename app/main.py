@@ -232,6 +232,11 @@ class ReorderPayload(BaseModel):
     slugs: list[str]
 
 
+class SubfieldOrderPayload(BaseModel):
+    field: str
+    subfields: list[str]
+
+
 @app.post("/api/ideas/reorder")
 def api_reorder(body: ReorderPayload):
     try:
@@ -304,6 +309,19 @@ class TaxonomyPayload(BaseModel):
 @app.get("/api/taxonomy")
 def api_get_taxonomy():
     return storage.load_taxonomy()
+
+
+@app.post("/api/taxonomy/reorder")
+def api_reorder_subfields(body: SubfieldOrderPayload):
+    try:
+        return storage.reorder_subfields(body.field, body.subfields)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/ratings")
+def api_rating_keys():
+    return {"keys": storage.RATING_KEYS}
 
 
 @app.post("/api/taxonomy")

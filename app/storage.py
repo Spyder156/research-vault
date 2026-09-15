@@ -43,6 +43,13 @@ TAXONOMY_PATH = IDEAS_DIR / "taxonomy.json"
 
 STATUSES = ["seed", "active", "parked"]
 
+# Idea rater. Every axis is "higher is better" so one slider style fits all and
+# the overall average is meaningful. Stored as {key: int 1..10}; absent = unrated.
+RATING_KEYS = [
+    "creativity", "novelty", "feasibility", "compute", "data",
+    "impact", "money", "venue", "speed", "interest",
+]
+
 # Per-idea markdown files. "detail" is the long-form box under the description.
 TEXT_FIELDS = ("description", "detail", "notes")
 # Retired statuses map forward so older meta.json files keep their meaning.
@@ -113,6 +120,7 @@ def _default_meta(slug: str, title: str) -> dict:
         # Flat list, display order. "level" 0 = high-level step, 1 = sub-step of the
         # nearest level-0 item above it. Only level 0 counts toward progress.
         "plan": [],           # [{"id": str, "text": str, "checked": bool, "level": 0|1}]
+        "ratings": {},        # {rating key: 1..10}; missing key = not rated yet
         "links": [],          # [{"title": str, "url": str}]
         "related": [],        # [slug] — kept symmetric by link/unlink helpers
     }
@@ -130,6 +138,17 @@ def _normalize_meta(slug: str, meta: dict) -> dict:
         base["order"] = int(base["order"])
     except (TypeError, ValueError):
         base["order"] = 0
+    # Ratings: keep only known axes, clamp to 1..10, drop anything unparseable.
+    raw = base.get("ratings") or {}
+    clean = {}
+    if isinstance(raw, dict):
+        for key in RATING_KEYS:
+            if key in raw:
+                try:
+                    clean[key] = max(1, min(10, int(raw[key])))
+                except (TypeError, ValueError):
+                    pass
+    base["ratings"] = clean
     for item in base["plan"]:
         item.setdefault("id", uuid.uuid4().hex[:8])
         item.setdefault("text", "")
@@ -191,7 +210,8 @@ def create_idea(title: str, field: str = "", subfield: str = "", status: str = "
 
 # Fields the client may PATCH directly. 'related' is excluded: it is kept
 # symmetric across ideas and must go through link_related/unlink_related.
-_PATCHABLE = {"title", "field", "subfield", "tags", "status", "plan", "links", "order"}
+_PATCHABLE = {"title", "field", "subfield", "tags", "status", "plan", "links",
+              "order", "ratings"}
 
 
 @_locked
@@ -212,6 +232,15 @@ def update_meta(slug: str, patch: dict) -> dict:
             ]
             if value:
                 value[0]["level"] = 0
+        if key == "ratings":
+            clean = {}
+            for rk, rv in (value or {}).items():
+                if rk in RATING_KEYS:
+                    try:
+                        clean[rk] = max(1, min(10, int(rv)))
+                    except (TypeError, ValueError):
+                        pass
+            value = clean
         meta[key] = value
     meta["updated"] = now_iso()
     save_meta(slug, meta)
@@ -374,7 +403,8 @@ def load_taxonomy() -> dict[str, list[str]]:
             changed = True
     if changed:
         save_taxonomy(tax)
-    return {k: sorted(v) for k, v in sorted(tax.items())}
+    # Subfields keep their stored order (it is user-arranged); fields stay A-Z.
+    return {k: list(tax[k]) for k in sorted(tax)}
 
 
 def save_taxonomy(tax: dict) -> None:
@@ -392,7 +422,27 @@ def add_taxonomy(field: str, subfield: str = "") -> dict:
     if subfield and subfield not in tax[field]:
         tax[field].append(subfield)
     save_taxonomy(tax)
-    return {k: sorted(v) for k, v in sorted(tax.items())}
+    # Subfields keep their stored order (it is user-arranged); fields stay A-Z.
+    return {k: list(tax[k]) for k in sorted(tax)}
+
+
+@_locked
+def reorder_subfields(field: str, subfields: list[str]) -> dict:
+    """Store the subfields of one field in the given order.
+
+    expects: `subfields` is a permutation of that field's current list. Any name
+    not mentioned is kept, appended in its existing order, so a stale client
+    cannot silently drop a subfield.
+    """
+    tax = load_taxonomy()
+    if field not in tax:
+        raise ValueError(f"unknown field: {field}")
+    current = tax[field]
+    ordered = [s for s in subfields if s in current]
+    ordered += [s for s in current if s not in ordered]
+    tax[field] = ordered
+    save_taxonomy(tax)
+    return load_taxonomy()
 
 
 @_locked
@@ -410,7 +460,8 @@ def remove_taxonomy(field: str, subfield: str = "") -> dict:
     else:
         tax.pop(field, None)
     save_taxonomy(tax)
-    return {k: sorted(v) for k, v in sorted(tax.items())}
+    # Subfields keep their stored order (it is user-arranged); fields stay A-Z.
+    return {k: list(tax[k]) for k in sorted(tax)}
 
 
 def search(query: str) -> list[str]:

@@ -109,6 +109,103 @@ function autoGrow(ta, min) {
   if (parseFloat(ta.style.height) !== needed) ta.style.height = needed + "px";
 }
 
+/**
+ * Animate a DOM mutation: measure, mutate, then play every moved node back from
+ * its old position (FLIP). Gives the list a real "things slide out of the way"
+ * feel instead of snapping.
+ */
+function flipMove(nodes, mutate) {
+  const before = new Map();
+  for (const n of nodes) before.set(n, n.getBoundingClientRect().top);
+  mutate();
+  for (const n of nodes) {
+    const dy = before.get(n) - n.getBoundingClientRect().top;
+    if (!dy) continue;
+    n.style.transition = "none";
+    n.style.transform = `translateY(${dy}px)`;
+    requestAnimationFrame(() => {
+      n.style.transition = "transform 150ms cubic-bezier(.2,.7,.3,1)";
+      n.style.transform = "";
+    });
+  }
+}
+
+/**
+ * Pointer-driven sortable list.
+ *
+ * Deliberately NOT HTML5 drag-and-drop: the rows are <a> elements, and a browser
+ * answers a drag on a link with its own link-drag, which silently swallows the
+ * gesture. Pointer events behave identically everywhere and let the list animate.
+ *
+ * expects: container holds the sortable children directly.
+ *   itemSel   - selector for a sortable child
+ *   handleSel - selector for the grab area inside a child (optional: whole child)
+ *   canDrag   - (item) => bool, to exclude pinned rows
+ *   onCommit  - (orderedItems) => Promise, called once on release if order changed
+ */
+function sortable(container, { itemSel, handleSel, canDrag, onCommit }) {
+  container.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    const handle = handleSel ? e.target.closest(handleSel) : e.target.closest(itemSel);
+    if (!handle || !container.contains(handle)) return;
+    const item = handle.closest(itemSel);
+    if (!item || (canDrag && !canDrag(item))) return;
+
+    const siblings = () => [...container.querySelectorAll(":scope > " + itemSel)];
+    const startOrder = siblings().map(n => n.dataset.key);
+    const rect = item.getBoundingClientRect();
+    const grabDY = e.clientY - rect.top;
+    let moved = false;
+
+    // Floating copy that follows the pointer.
+    const ghost = item.cloneNode(true);
+    ghost.classList.add("drag-ghost");
+    Object.assign(ghost.style, {
+      position: "fixed", left: rect.left + "px", top: rect.top + "px",
+      width: rect.width + "px", margin: "0", pointerEvents: "none", zIndex: "999",
+    });
+
+    const onMove = ev => {
+      if (!moved) {
+        if (Math.abs(ev.clientY - e.clientY) < 4) return;   // ignore a plain click
+        moved = true;
+        document.body.appendChild(ghost);
+        item.classList.add("drag-src");
+        document.body.classList.add("dragging-now");
+      }
+      ghost.style.top = (ev.clientY - grabDY) + "px";
+
+      const others = siblings().filter(n => n !== item);
+      let target = null;
+      for (const n of others) {
+        const r = n.getBoundingClientRect();
+        if (ev.clientY < r.top + r.height / 2) { target = n; break; }
+      }
+      const nodes = siblings();
+      if (target !== item.nextElementSibling) {
+        flipMove(nodes, () => container.insertBefore(item, target));
+      }
+    };
+
+    const finish = async () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      if (!moved) return;
+      ghost.remove();
+      item.classList.remove("drag-src");
+      document.body.classList.remove("dragging-now");
+      const now = siblings();
+      if (now.map(n => n.dataset.key).join("\u0000") === startOrder.join("\u0000")) return;
+      await onCommit(now);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  });
+}
+
 /** Wrap the selection (or the caret) in markdown delimiters. */
 function wrapSelection(ta, before, after = before, placeholder = "text") {
   const a = ta.selectionStart, b = ta.selectionEnd;
@@ -286,6 +383,35 @@ function applyMode() {
   shell.classList.toggle("work", !isHero());
 }
 
+// Idea rater. Every axis reads "higher is better", so one slider style fits all
+// and the average across them is meaningful.
+const RATINGS = [
+  ["creativity",  "Creativity",        "how original the angle is"],
+  ["novelty",     "Novelty",           "how unlike existing work"],
+  ["feasibility", "Feasibility",       "can you actually pull it off"],
+  ["compute",     "Compute Efficiency", "10 = runs on what you have"],
+  ["data",        "Data Availability", "10 = the data already exists"],
+  ["impact",      "Profile Impact",    "what it does for your name"],
+  ["money",       "Monetary Value",    "fundable or commercialisable"],
+  ["venue",       "Conference Placement", "odds at a top venue"],
+  ["speed",       "Time to Result",    "10 = a first result lands fast"],
+  ["interest",    "Personal Interest", "how much you want to do it"],
+];
+const RATING_LABEL = Object.fromEntries(RATINGS.map(([k, l]) => [k, l]));
+
+/** Mean of the axes that have actually been rated, or null. */
+function ratingAvg(meta) {
+  const vals = RATINGS.map(([k]) => meta.ratings?.[k]).filter(v => typeof v === "number");
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
+/** Small "7.4" chip on a list row; blank when nothing is rated. */
+function ratingBadge(meta) {
+  const avg = ratingAvg(meta);
+  if (avg === null) return el("span");
+  return el("span.score", { title: "average rating" }, avg.toFixed(1));
+}
+
 const NO_SUB = "\u2014";                  // heading for ideas with no subfield
 
 /** field -> [ [subfield, ideas], ... ]. Fields A-Z, "Unfiled" last; the
@@ -310,19 +436,41 @@ function groupedIdeas() {
     subs.get(sub).push(i);
   }
 
-  const cmp = {
-    priority: (a, b) => a.order - b.order || a.created.localeCompare(b.created),
-    subfield: (a, b) => a.title.localeCompare(b.title),
-    updated: (a, b) => b.updated.localeCompare(a.updated),
-    title: (a, b) => a.title.localeCompare(b.title),
-    progress: (a, b) => (b.plan_total ? b.plan_done / b.plan_total : -1) - (a.plan_total ? a.plan_done / a.plan_total : -1),
-  }[state.sort];
+  // Rating sorts are "rating:<key>" (or "rating:avg"); unrated sinks to the bottom.
+  let cmp;
+  if (state.sort.startsWith("rating:")) {
+    const key = state.sort.slice(7);
+    const score = i => key === "avg" ? ratingAvg(i) : (i.ratings?.[key] ?? null);
+    cmp = (a, b) => {
+      const x = score(a), y = score(b);
+      if (x === null && y === null) return a.title.localeCompare(b.title);
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return y - x || a.title.localeCompare(b.title);
+    };
+  } else {
+    cmp = {
+      priority: (a, b) => a.order - b.order || a.created.localeCompare(b.created),
+      subfield: (a, b) => a.title.localeCompare(b.title),
+      updated: (a, b) => b.updated.localeCompare(a.updated),
+      title: (a, b) => a.title.localeCompare(b.title),
+      progress: (a, b) => (b.plan_total ? b.plan_done / b.plan_total : -1) - (a.plan_total ? a.plan_done / a.plan_total : -1),
+    }[state.sort] || ((a, b) => a.order - b.order);
+  }
 
   const out = [];
   for (const [f, subs] of fields) {
     for (const arr of subs.values()) arr.sort(cmp);
+    // Subfield order comes from the taxonomy (drag-arranged); anything not listed
+    // falls in after, alphabetically. The no-subfield bucket is always last.
+    const known = state.taxonomy[f] || [];
+    const rank = name => {
+      const ix = known.indexOf(name);
+      return ix < 0 ? known.length : ix;
+    };
     const subList = [...subs.entries()].sort((a, b) =>
-      a[0] === NO_SUB ? 1 : b[0] === NO_SUB ? -1 : a[0].localeCompare(b[0]));
+      a[0] === NO_SUB ? 1 : b[0] === NO_SUB ? -1
+        : (rank(a[0]) - rank(b[0])) || a[0].localeCompare(b[0]));
     out.push([f, subList]);
   }
   return out.sort((a, b) =>
@@ -352,12 +500,19 @@ function renderHome() {
   if (!isHero()) {
     const sortSel = el("select.sel.sel-quiet", {
       onchange: e => { state.sort = e.target.value; localStorage.setItem("rv-sort", state.sort); renderHome(); },
-    }, ...[["priority", "Priority"], ["subfield", "Subfield"], ["updated", "Updated"],
-           ["title", "Title"], ["progress", "Progress"]].map(([v, t]) => {
+    });
+    const opt = (v, t) => {
       const o = el("option", { value: v }, t);
       if (v === state.sort) o.selected = true;
       return o;
-    }));
+    };
+    for (const [v, t] of [["priority", "Priority"], ["subfield", "Subfield"],
+                          ["updated", "Updated"], ["title", "Title"], ["progress", "Progress"]]) {
+      sortSel.append(opt(v, t));
+    }
+    const rg = el("optgroup", { label: "Rating" }, opt("rating:avg", "Overall"));
+    for (const [k, lbl] of RATINGS) rg.append(opt("rating:" + k, lbl));
+    sortSel.append(rg);
     main.append(el("div.listbar", {},
       el("h2", {}, state.q ? `Search: “${state.q}”` : "Ideas"),
       el("span.count", {}, `${total} of ${state.ideas.length}`),
@@ -387,7 +542,7 @@ function renderHome() {
 function groupBlock(field, subs) {
   const count = subs.reduce((n, [, arr]) => n + arr.length, 0);
   const open = state.open.has(field) || !!state.q;
-  const box = el("div.grp" + (open ? ".open" : ""));
+  const box = el("div.grp" + (open ? ".open" : ""), { "data-field": field });
 
   const head = el("button.grp-head", {
     onclick: () => {
@@ -404,26 +559,56 @@ function groupBlock(field, subs) {
     body.append(el("div.grp-empty", {}, "No ideas in this field yet."));
   } else {
     for (const [sub, items] of subs) {
-      // Sub-groups are open by default; the key namespaces them under the field.
       const key = field + "/" + sub;
       const subOpen = !state.closedSubs.has(key);
-      const subBox = el("div.sub-grp" + (subOpen ? ".open" : ""));
-      subBox.append(el("button.sub-head", {
-        onclick: () => {
-          if (state.closedSubs.has(key)) state.closedSubs.delete(key);
-          else state.closedSubs.add(key);
-          renderHome();
+      const real = sub !== NO_SUB;               // the "\u2014" bucket is not a real subfield
+      const subBox = el("div.sub-grp" + (subOpen ? ".open" : ""),
+        { "data-key": sub, "data-real": real ? "1" : "0" });
+
+      subBox.append(el("div.sub-head", {},
+        el("button.sub-toggle", {
+          onclick: () => {
+            if (state.closedSubs.has(key)) state.closedSubs.delete(key);
+            else state.closedSubs.add(key);
+            renderHome();
+          },
         },
-      },
-        el("span.caret", {}, "\u25b6"),
-        el("span.sub-name" + (sub === NO_SUB ? ".sub-none" : ""), {}, sub),
-        el("span.grp-n", {}, String(items.length))));
+          el("span.caret", {}, "\u25b6"),
+          el("span.sub-name" + (real ? "" : ".sub-none"), {}, sub),
+          el("span.grp-n", {}, String(items.length))),
+        real ? el("span.grip.sub-grip", { title: "Drag to reorder this subfield" }, "\u22ee\u22ee") : null));
 
       const rows = el("div.sub-body");
-      items.forEach((i, ix) => rows.append(ideaRow(i, ix, items, field, sub)));
+      items.forEach((i, ix) => rows.append(ideaRow(i, ix, items)));
       subBox.append(rows);
       body.append(subBox);
+
+      // Ideas reorder inside their own sub-group.
+      if (state.sort === "priority" && !state.q) {
+        sortable(rows, {
+          itemSel: ".irow",
+          handleSel: ".grip",
+          onCommit: async ordered => {
+            await api("POST", "/api/ideas/reorder", { slugs: ordered.map(n => n.dataset.key) });
+            await refreshIndex();
+            renderHome();
+          },
+        });
+      }
     }
+
+    // Subfields reorder inside their field. The "\u2014" bucket stays put.
+    sortable(body, {
+      itemSel: ".sub-grp",
+      handleSel: ".sub-grip",
+      canDrag: n => n.dataset.real === "1",
+      onCommit: async ordered => {
+        const names = ordered.filter(n => n.dataset.real === "1").map(n => n.dataset.key);
+        state.taxonomy = await api("POST", "/api/taxonomy/reorder", { field, subfields: names });
+        await refreshIndex();
+        renderHome();
+      },
+    });
   }
 
   box.append(head, body);
@@ -439,79 +624,19 @@ async function saveOrder(items) {
 
 let dragSlug = null;
 
-function ideaRow(i, ix, items, field, sub) {
-  // Manual ordering only means something under the Priority sort, and a search
-  // shows a partial group so dragging inside it would be meaningless.
+function ideaRow(i, ix, items) {
+  // A search shows a partial group, so manual order would be meaningless there.
   const canMove = state.sort === "priority" && !state.q;
-
-  // The grip is the drag source, never the row. The row is an <a>, and a browser
-  // answers a drag on a link with its own native link-drag (it hands over the URL
-  // and refuses our drop), which is why dragging the row itself did nothing.
-  const grip = el("span.grip" + (canMove ? "" : ".grip-off"),
-    { title: canMove ? "Drag to reorder" : "" }, canMove ? "\u22ee\u22ee" : "");
-
-  const row = el("a.irow" + (canMove ? ".movable" : ""), { href: `#/idea/${i.slug}` },
+  const row = el("a.irow" + (canMove ? ".movable" : ""),
+    { href: `#/idea/${i.slug}`, "data-key": i.slug },
     el(`span.irow-rail.bg-${i.status}`, { title: SLABEL[i.status] }),
     el("div.irow-main", {}, el("div.irow-title", {}, i.title)),
+    el("div.irow-score", {}, ratingBadge(i)),
     el("div", {}, meter(i.plan_done, i.plan_total)),
-    grip);
-
-  row.draggable = false;                 // kill the anchor's native link drag
-  if (!canMove) return row;
-
-  grip.draggable = true;
-  grip.setAttribute("draggable", "true");
-
-  let justDragged = false;
-  grip.addEventListener("dragstart", e => {
-    dragSlug = i.slug;
-    justDragged = true;
-    row.classList.add("dragging");
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = "move";
-      try { e.dataTransfer.setData("text/plain", i.slug); } catch { /* jsdom */ }
-      // Drag the whole row as the ghost, not the two-dot handle.
-      if (e.dataTransfer.setDragImage) {
-        try { e.dataTransfer.setDragImage(row, 20, row.offsetHeight / 2); } catch { /* ignore */ }
-      }
-    }
-  });
-  grip.addEventListener("dragend", () => {
-    dragSlug = null;
-    row.classList.remove("dragging");
-    setTimeout(() => { justDragged = false; }, 0);
-  });
-  // A drag that ends on the row must not also follow the link.
-  row.addEventListener("click", e => { if (justDragged) e.preventDefault(); });
-
-  const accepts = () =>
-    dragSlug && dragSlug !== i.slug && items.some(x => x.slug === dragSlug);
-
-  // Chrome only offers a drop when BOTH dragenter and dragover are cancelled.
-  const allow = e => {
-    if (!accepts()) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    row.classList.add("drop-over");
-  };
-  row.addEventListener("dragenter", allow);
-  row.addEventListener("dragover", allow);
-  row.addEventListener("dragleave", e => {
-    // leaving for a child of the same row is not really leaving
-    if (e.relatedTarget && row.contains(e.relatedTarget)) return;
-    row.classList.remove("drop-over");
-  });
-  row.addEventListener("drop", async e => {
-    e.preventDefault();
-    e.stopPropagation();
-    row.classList.remove("drop-over");
-    const from = items.findIndex(x => x.slug === dragSlug);
-    if (from < 0 || from === ix) return;
-    const next = items.slice();
-    const [moved] = next.splice(from, 1);
-    next.splice(ix, 0, moved);
-    await saveOrder(next);
-  });
+    canMove ? el("span.grip", { title: "Drag to reorder" }, "\u22ee\u22ee") : el("span"));
+  // Links are draggable by default. If the browser starts its own link-drag it
+  // swallows the pointer stream and our reorder never sees another pointermove.
+  row.draggable = false;
   return row;
 }
 
@@ -899,6 +1024,72 @@ async function renderDetail(slug) {
     el("div.sec-head", {}, hr(), planMeter),
     planBox);
 
+  // --- rater: ten 1-10 sliders, autosaved
+  const raterBox = el("div.rater");
+  const raterAvg = el("span.rater-avg");
+
+  function renderRater() {
+    raterBox.replaceChildren(...RATINGS.map(([key, lbl, hint]) => {
+      const rated = typeof meta.ratings[key] === "number";
+      const val = rated ? meta.ratings[key] : 5;
+
+      const num = el("span.rate-val" + (rated ? "" : ".unrated"), {}, rated ? String(val) : "\u2013");
+      const slider = el("input.rate-slider", {
+        type: "range", min: "1", max: "10", step: "1", title: hint,
+      });
+      slider.value = String(val);
+      if (!rated) slider.classList.add("unrated");
+
+      const paint = v => {
+        // Fill the track up to the thumb so the level reads at a glance.
+        slider.style.setProperty("--fill", ((v - 1) / 9 * 100) + "%");
+      };
+      paint(val);
+
+      const commit = debounce(async () => {
+        await patch({ ratings: meta.ratings });
+        const ix = state.ideas.findIndex(x => x.slug === slug);
+        if (ix >= 0) state.ideas[ix].ratings = { ...meta.ratings };
+      }, 350);
+
+      slider.addEventListener("input", () => {
+        const v = Number(slider.value);
+        meta.ratings[key] = v;
+        num.textContent = String(v);
+        num.classList.remove("unrated");
+        slider.classList.remove("unrated");
+        paint(v);
+        updateAvg();
+        commit();
+      });
+
+      const clear = el("button.rate-clear", {
+        title: "Clear this rating",
+        onclick: async () => {
+          delete meta.ratings[key];
+          await patch({ ratings: meta.ratings });
+          renderRater();
+        },
+      }, rated ? "\u00d7" : "");
+
+      return el("div.rate-row", {},
+        el("span.rate-label", { title: hint }, lbl),
+        slider, num, clear);
+    }));
+    updateAvg();
+  }
+
+  function updateAvg() {
+    const avg = ratingAvg(meta);
+    raterAvg.textContent = avg === null ? "unrated" : avg.toFixed(1) + " / 10";
+    raterAvg.classList.toggle("unrated", avg === null);
+  }
+  renderRater();
+
+  const raterSec = el("div.sec", {},
+    el("div.sec-head", {}, label("Rating"), hr(), raterAvg),
+    raterBox);
+
   // --- links & reading: two columns — the name you give it, and the link itself
   const linkList = el("div.links");
   function renderLinks() {
@@ -983,7 +1174,7 @@ async function renderDetail(slug) {
   renderFiling();
 
   const page = el("div", {}, bar, h1, filing, states,
-    descBox, detailBox, planSec, linkList, figSec);
+    descBox, detailBox, planSec, raterSec, linkList, figSec);
   page.flushAll = () => { descBox.flush(); detailBox.flush(); };
   $("#main").replaceChildren(page);
 }

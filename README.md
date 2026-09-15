@@ -16,10 +16,17 @@ state; so does `Esc`.
 Both levels collapse; subfields start open. Ideas with no subfield collect under a "—"
 heading at the end of their field.
 
-Within a subfield you choose the order: **Priority** (manual — **drag a row** by any part of
-it), Subfield, Updated, Title, or Progress. Priority ranks are per sub-group, so dragging
-inside CV / SLAM never disturbs CV / Detection, and the position is written to disk so it
-survives a reload.
+Field, subfield and idea step **down** in size, weight and brightness, so the hierarchy
+reads without needing any rules or boxes.
+
+**Dragging** uses pointer events, not HTML5 drag-and-drop (a browser answers a drag on a
+link with its own link-drag and swallows the gesture). Grab the `⁞⁞` handle: on an idea row
+to reorder it inside its subfield, or on a subfield header to move that whole subfield
+within its field. A floating copy follows the cursor and the rest of the list slides out of
+the way. Both orders are written to disk and survive a reload.
+
+Order within a subfield: **Priority** (your manual drag order), Subfield, Updated, Title,
+Progress, or any **Rating** axis.
 
 **Idea page.** Title, a three-state status control, then four unlabelled blocks in order:
 a short description, a large long-form box, the Plan, and a notes scratchpad — followed by
@@ -37,6 +44,13 @@ round one** for each sub-point. **Only the points count toward the progress bar*
 sub-points are working detail. Ticks survive re-editing: any line whose wording you did not
 change keeps its state. Each point is edited on its own, and dragging one by its number
 carries its sub-points along.
+
+**Rating.** Each idea carries ten 1–10 sliders — Creativity, Novelty, Feasibility, Compute
+Efficiency, Data Availability, Profile Impact, Monetary Value, Conference Placement, Time to
+Result, Personal Interest. Every axis reads "higher is better", so the average across them
+means something; it shows beside the section and as a small number on each list row. Sort a
+subfield by any single axis or by the overall average — unrated ideas sink to the bottom.
+Hover an axis and `×` clears it.
 
 **Links & Reading** is a two-column table: the name you give a paper on the left, and a
 short `Link` on the right that carries the full URL.
